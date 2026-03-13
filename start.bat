@@ -1,8 +1,6 @@
 @echo off
-chcp 65001 >nul
-
 if not exist ".venv\Scripts\activate.bat" (
-    echo [错误] 未找到虚拟环境，请先运行 setup.bat
+    echo [Error] Virtual environment not found. Please run setup.bat first.
     pause
     exit /b 1
 )
