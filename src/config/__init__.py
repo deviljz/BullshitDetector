@@ -5,4 +5,4 @@ load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o")
-SCREENSHOT_HOTKEY = "ctrl+shift+b"
+SCREENSHOT_HOTKEY = "alt+q"

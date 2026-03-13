@@ -15,7 +15,6 @@ from ui.result_window import ResultWindow
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
     show_result = pyqtSignal(str)
-    show_loading = pyqtSignal()
 
 
 class BullshitDetectorApp:

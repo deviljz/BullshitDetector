@@ -1,4 +1,5 @@
 from PyQt6.QtWidgets import (
+    QApplication,
     QWidget,
     QVBoxLayout,
     QTextEdit,
@@ -71,4 +72,9 @@ class ResultWindow(QWidget):
         self.setStyleSheet("QWidget { background: #181825; }")
 
     def _copy_result(self):
-        pyperclip.copy(self._result_text)
+        try:
+            pyperclip.copy(self._result_text)
+        except Exception:
+            clipboard = QApplication.clipboard()
+            if clipboard:
+                clipboard.setText(self._result_text)
