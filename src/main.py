@@ -2,8 +2,8 @@ import sys
 import threading
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
-from PyQt6.QtGui import QIcon, QAction
-from PyQt6.QtCore import QObject, pyqtSignal
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
+from PyQt6.QtCore import QObject, pyqtSignal, Qt
 import keyboard
 
 from config import SCREENSHOT_HOTKEY
@@ -32,8 +32,24 @@ class BullshitDetectorApp:
         self._capture_position = None
         self._setup_tray()
 
+    @staticmethod
+    def _make_tray_icon() -> QIcon:
+        px = QPixmap(32, 32)
+        px.fill(Qt.GlobalColor.transparent)
+        p = QPainter(px)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QColor("#1e1e2e"))
+        p.setPen(QColor("#cba6f7"))
+        p.drawEllipse(1, 1, 30, 30)
+        p.setFont(QFont("Segoe UI Emoji", 16))
+        p.setPen(QColor("#f9e2af"))
+        p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, "💩")
+        p.end()
+        return QIcon(px)
+
     def _setup_tray(self):
         self._tray = QSystemTrayIcon()
+        self._tray.setIcon(self._make_tray_icon())
         self._tray.setToolTip("BullshitDetector")
         menu = QMenu()
         capture_action = QAction("截图分析", menu)
