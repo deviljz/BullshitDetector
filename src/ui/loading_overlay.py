@@ -1,7 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout
 from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtWidgets import QGraphicsDropShadowEffect
+from PyQt6.QtGui import QFont
 
 
 class LoadingOverlay(QWidget):
@@ -56,11 +55,6 @@ class LoadingOverlay(QWidget):
             "}"
         )
 
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 160))
-        self.setGraphicsEffect(shadow)
 
     def _setup_timer(self):
         self._timer = QTimer(self)
