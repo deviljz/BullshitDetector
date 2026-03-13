@@ -14,7 +14,7 @@ from ui.result_window import ResultWindow
 
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
-    show_result = pyqtSignal(str)
+    show_result = pyqtSignal(dict, object)  # result_dict, position
 
 
 class BullshitDetectorApp:
@@ -26,6 +26,7 @@ class BullshitDetectorApp:
         self.signals.show_result.connect(self._show_result)
         self._overlay = None
         self._result_window = None
+        self._capture_position = None
         self._setup_tray()
 
     def _setup_tray(self):
@@ -44,7 +45,8 @@ class BullshitDetectorApp:
     def _start_capture(self):
         self._overlay = ScreenshotOverlay(self._on_screenshot_taken)
 
-    def _on_screenshot_taken(self, image):
+    def _on_screenshot_taken(self, image, position=None):
+        self._capture_position = position
         b64 = image_to_base64(image)
         self._tray.showMessage(
             "BullshitDetector", "正在分析中，请稍候...", QSystemTrayIcon.MessageIcon.Information, 3000
@@ -53,14 +55,11 @@ class BullshitDetectorApp:
         thread.start()
 
     def _run_analysis(self, image_base64: str):
-        try:
-            result = analyze_screenshot(image_base64)
-            self.signals.show_result.emit(result)
-        except Exception as e:
-            self.signals.show_result.emit(f"分析失败：{e}")
+        result = analyze_screenshot(image_base64)
+        self.signals.show_result.emit(result, self._capture_position)
 
-    def _show_result(self, text: str):
-        self._result_window = ResultWindow(text)
+    def _show_result(self, result: dict, position):
+        self._result_window = ResultWindow(result, position)
         self._result_window.show()
 
     def run(self):

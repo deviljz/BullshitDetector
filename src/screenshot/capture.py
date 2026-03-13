@@ -56,7 +56,8 @@ class ScreenshotOverlay(QWidget):
             rect = self._selection.normalized()
             if rect.width() > 10 and rect.height() > 10:
                 image = self._grab_region(rect)
-                self._on_capture(image)
+                position = (rect.x() + rect.width(), rect.y())
+                self._on_capture(image, position)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
