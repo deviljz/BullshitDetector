@@ -6,10 +6,10 @@ from PyQt6.QtGui import QIcon, QAction
 from PyQt6.QtCore import QObject, pyqtSignal
 import keyboard
 
-from src.config import SCREENSHOT_HOTKEY, OPENAI_API_KEY
-from src.screenshot.capture import ScreenshotOverlay, image_to_base64
-from src.ai.analyzer import analyze_screenshot
-from src.ui.result_window import ResultWindow
+from config import SCREENSHOT_HOTKEY, OPENAI_API_KEY
+from screenshot.capture import ScreenshotOverlay, image_to_base64
+from ai.analyzer import analyze_screenshot
+from ui.result_window import ResultWindow
 
 
 class SignalBridge(QObject):

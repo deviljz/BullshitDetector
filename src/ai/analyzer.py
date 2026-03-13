@@ -1,5 +1,5 @@
 from openai import OpenAI
-from src.config import OPENAI_API_KEY, OPENAI_MODEL
+from config import OPENAI_API_KEY, OPENAI_MODEL
 
 SYSTEM_PROMPT = """你是一个专业的信息真实性分析专家（BullshitDetector）。
 用户会给你一张网络内容的截图，请你：
