@@ -146,12 +146,12 @@ class ResultWindow(QWidget):
             screen = QApplication.primaryScreen()
             if screen:
                 geo = screen.availableGeometry()
-                # 确保窗口不超出屏幕
+                # 确保窗口不超出屏幕（考虑多显示器偏移）
                 win_w, win_h = self.width(), self.height()
-                x = min(x, geo.width() - win_w)
-                y = min(y, geo.height() - win_h)
-                x = max(0, x)
-                y = max(0, y)
+                x = min(x, geo.x() + geo.width() - win_w)
+                y = min(y, geo.y() + geo.height() - win_h)
+                x = max(geo.x(), x)
+                y = max(geo.y(), y)
                 self.move(QPoint(x, y))
 
     def _start_auto_close(self):

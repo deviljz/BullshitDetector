@@ -1,9 +1,9 @@
 import io
 import base64
 
-from PyQt6.QtWidgets import QApplication, QWidget
+from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRect, QPoint
-from PyQt6.QtGui import QPainter, QColor, QScreen, QPixmap
+from PyQt6.QtGui import QPainter, QColor
 import mss
 from PIL import Image
 

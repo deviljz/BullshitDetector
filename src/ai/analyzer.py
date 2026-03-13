@@ -1,7 +1,8 @@
 import json
 
 from openai import OpenAI
-from config import OPENAI_API_KEY, OPENAI_MODEL
+from config import OPENAI_API_KEY, OPENAI_API_BASE, OPENAI_MODEL
+from ai.search import search_news, format_search_results
 
 SYSTEM_PROMPT = """你是一个专业的信息真实性分析专家（BullshitDetector）。
 用户会给你一张网络内容的截图，请你：
@@ -32,19 +33,28 @@ SYSTEM_PROMPT = """你是一个专业的信息真实性分析专家（BullshitDe
 - tactics: 识别到的话术手法
 - roast: 一句毒舌锐评，要犀利、有趣"""
 
+EXTRACT_PROMPT = """请提取这张截图中的关键事实性声明和主要话题，用简短的关键词概括，方便用于搜索引擎查询。
+只输出搜索关键词，不要其他内容。如果图片中没有明确的事实性声明或新闻事件，请回复"无需搜索"。"""
 
-def analyze_screenshot(image_base64: str) -> dict:
-    """分析截图内容真实性，返回结构化 JSON 结果。"""
+
+def _build_client() -> OpenAI:
+    """构建 OpenAI 兼容客户端（支持 Gemini 等第三方 API）"""
+    kwargs = {"api_key": OPENAI_API_KEY}
+    if OPENAI_API_BASE:
+        kwargs["base_url"] = OPENAI_API_BASE
+    return OpenAI(**kwargs)
+
+
+def _extract_search_query(client: OpenAI, image_base64: str) -> str:
+    """从截图中提取搜索关键词"""
     try:
-        client = OpenAI(api_key=OPENAI_API_KEY)
         response = client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
                 {
                     "role": "user",
                     "content": [
-                        {"type": "text", "text": "请分析这张截图中的内容真实性："},
+                        {"type": "text", "text": EXTRACT_PROMPT},
                         {
                             "type": "image_url",
                             "image_url": {
@@ -53,6 +63,53 @@ def analyze_screenshot(image_base64: str) -> dict:
                         },
                     ],
                 },
+            ],
+            max_tokens=100,
+        )
+        query = response.choices[0].message.content.strip()
+        if "无需搜索" in query:
+            return ""
+        return query
+    except Exception:
+        return ""
+
+
+def analyze_screenshot(image_base64: str) -> dict:
+    """分析截图内容真实性，返回结构化 JSON 结果。"""
+    try:
+        client = _build_client()
+
+        # Step 1: 提取搜索关键词
+        search_query = _extract_search_query(client, image_base64)
+
+        # Step 2: 搜索验证（如果有关键词）
+        search_context = ""
+        if search_query:
+            results = search_news(search_query)
+            search_context = format_search_results(results)
+
+        # Step 3: 结合搜索结果进行分析
+        user_content = [
+            {"type": "text", "text": "请分析这张截图中的内容真实性："},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image_base64}",
+                },
+            },
+        ]
+
+        if search_context:
+            user_content.append({
+                "type": "text",
+                "text": f"\n\n以下是关于截图内容的网络搜索结果，请结合这些信息进行判断：\n{search_context}",
+            })
+
+        response = client.chat.completions.create(
+            model=OPENAI_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
             ],
             max_tokens=2048,
             response_format={"type": "json_object"},
@@ -88,5 +145,5 @@ def analyze_screenshot(image_base64: str) -> dict:
             "claims": [],
             "tactics": [],
             "roast": "分析过程翻车了，比假新闻还离谱 💀",
-            "error": str(e),
+            "error": f"{type(e).__name__}: 分析请求失败",
         }
