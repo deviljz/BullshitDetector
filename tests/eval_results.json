@@ -1,0 +1,301 @@
+{
+  "accuracy": 66.66666666666666,
+  "results": [
+    {
+      "id": 1,
+      "type": "real_news",
+      "category": "宏观经济/金融政策",
+      "expected_level": "high",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": false,
+      "roast": "这则新闻比我的头发还稀有，因为根本不存在。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 13.8,
+      "search_triggered": true,
+      "search_queries": [
+        "中国人民银行 降准 2026年3月10日 6.6%",
+        "People's Bank of China RRR cut March 10 2026 6.6%"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 2,
+      "type": "real_news",
+      "category": "古生物发现",
+      "expected_level": "high",
+      "is_fake": true,
+      "confidence": 0.95,
+      "bullshit_index": 90,
+      "correct": false,
+      "roast": "《自然》杂志要是能提前一个月刊登消息，那它就是《预言》杂志了。这内容纯属拿科学名词和权威机构给自己编的故事壮胆，但日期一摆，牛鬼蛇神立马现原形。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 13.9,
+      "search_triggered": true,
+      "search_queries": [
+        "自然杂志 2026年2月 中国科学院古脊椎动物与古人类研究所 云南 化石 禄丰龙",
+        "Nature 2026 February IVPP Yunnan fossil Lufengosaurus"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "1. 研究生阶段发一篇 Nature 正刊是什么水平？能横着走吗？\n   你别说，真的有，某普通985 国家重点实验室，大三开始进组做东西，研一就发了 nature （还是2018年的时候哦），材料是他合成出来的，这个一作没得洗。 …\n   来源: https://www.zhihu.com/question/451447567\n2. 清华大学本科生一作发表《Nature》攻克核光钟研制的瓶颈，此"
+      ]
+    },
+    {
+      "id": 3,
+      "type": "clickbait",
+      "category": "宏观经济/金融政策",
+      "expected_level": "low",
+      "is_fake": true,
+      "confidence": 0.95,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "这标题的惊叹号比内容里的事实还多，赶紧买房不如赶紧买份常识险。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 24.2,
+      "search_triggered": true,
+      "search_queries": [
+        "央行 降准 5000亿 2026年3月",
+        "China central bank RRR cut 500 billion March 2026"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 4,
+      "type": "clickbait",
+      "category": "独立游戏资讯",
+      "expected_level": "low",
+      "is_fake": true,
+      "confidence": 0.95,
+      "bullshit_index": 90,
+      "correct": true,
+      "roast": "这标题的炸裂程度，大概只比你手机爆炸的几率高一点，内容嘛，也就比你考试交白卷还空洞。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 20.2,
+      "search_triggered": true,
+      "search_queries": [
+        "《黑神话：悟空》制作人冯骥 深夜发文 危机",
+        "Black Myth: Wukong producer Feng Ji late night post crisis",
+        "《黑神话：悟空》 内部矛盾",
+        "Black Myth: Wukong internal conflicts"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 5,
+      "type": "half_true",
+      "category": "古生物发现",
+      "expected_level": "low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "这不叫紧急扩散，这叫紧急散布科幻谣言，科学家看了都得连夜给《侏罗纪公园》编剧发奖金。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 29.2,
+      "search_triggered": true,
+      "search_queries": [
+        "云南禄丰 恐龙化石 出土 软组织 DNA 克隆 2026年3月",
+        "Lufeng Yunnan dinosaur fossil unearthed soft tissue DNA clone March 2026"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "half_true",
+      "category": "未解之谜",
+      "expected_level": "low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "这UFO残骸视频估计是AI梦见的，NASA局长的声明估计是在平行宇宙发的。2026年3月？这新闻比UFO还科幻！",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 21.0,
+      "search_triggered": true,
+      "search_queries": [
+        "David Grusch Congress testimony March 2026 UFO",
+        "大卫·格鲁什 2026年3月 国会听证 UFO",
+        "NASA Administrator statement UFO March 2026",
+        "NASA 局长 声明 UFO 2026年3月",
+        "Pentagon UFO debris video March 2026",
+        "五角大楼 UFO残骸视频 2026年3月"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "1. 怎么样在NASA官网查询生日时宇宙照片？（最好是详细图解）？\n   Mar 29, 2020 · 还没完！ 再教大家一下怎么要出图片 往下翻到： 有各种图片规格，点击你选中的一个→ 再长按图片→ 点击保存图片，就完成啦～ 最后附上一个nasa查询图片的网址 images.nasa.gov 阅读 …\n   来源: https://www.zhihu.com/question/383501333",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 7,
+      "type": "fabricated",
+      "category": "未解之谜",
+      "expected_level": "very_low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "MIT要是真有这发现，你以为论文是提交给哪儿？八成是投给了《走进科学》的编剧组。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 20.0,
+      "search_triggered": true,
+      "search_queries": [
+        "MIT 量子物理实验室 平行宇宙 文明 2026年3月12日",
+        "MIT Quantum Physics Lab parallel universe civilization March 12 2026"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 8,
+      "type": "fabricated",
+      "category": "独立游戏资讯",
+      "expected_level": "very_low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 100,
+      "correct": true,
+      "roast": "《半条命3》的发布消息每年都会来一次，下次再有G胖亲自宣布《半条命3》搭载Source 4引擎登陆PS7，麻烦把我也叫上，我想看看Steam服务器怎么在没发布会的情况下崩溃。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 30.1,
+      "search_triggered": true,
+      "search_queries": [
+        "GDC 2026 dates",
+        "GDC 2026 Half-Life 3 announcement Gabe Newell",
+        "PlayStation 6 release date",
+        "Half-Life 3 Source 3 engine VR"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 9,
+      "type": "time_sensitive_real",
+      "category": "突发国际新闻",
+      "expected_level": "high",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": false,
+      "roast": "连地震都能凭空捏造，路透社都得跟着你一起『震』惊。这地儿没地震，你脑袋怕是先地震了。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 12.2,
+      "search_triggered": true,
+      "search_queries": [
+        "土耳其 伊斯坦布尔 地震 2026年3月11日",
+        "earthquake Istanbul March 11 2026"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 10,
+      "type": "time_sensitive_real",
+      "category": "宏观经济/金融政策",
+      "expected_level": "high",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": false,
+      "roast": "这美联储是开了个寂寞，会议新闻发布会和利率声明全凭嘴编，不愧是金融界的科幻作家。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 15.1,
+      "search_triggered": true,
+      "search_queries": [
+        "美联储 FOMC 会议 2026年3月12日 利率",
+        "Fed FOMC meeting March 12 2026 interest rate"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 11,
+      "type": "time_sensitive_fake",
+      "category": "突发国际新闻",
+      "expected_level": "very_low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "这则消息假得像刚从'时间穿越者的朋友圈'里捞出来，不仅日期和事件全凭编造，连油价都敢胡说八道，简直是把读者当成互联网'原始人'！",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 16.5,
+      "search_triggered": true,
+      "search_queries": [
+        "伊朗最高领袖 哈梅内伊 2026年3月13日 解除石油出口限额",
+        "Iran Supreme Leader Khamenei March 13 2026 lift oil export limits",
+        "布伦特原油 跌破 55美元 2026年3月13日",
+        "Brent crude oil below 55 USD March 13 2026"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    },
+    {
+      "id": 12,
+      "type": "time_sensitive_fake",
+      "category": "独立游戏资讯",
+      "expected_level": "very_low",
+      "is_fake": true,
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "恭喜任天堂喜提2026年3月13日'被危机'称号，下次编新闻麻烦查下黄历，今天并不适合紧急发布会。",
+      "roast_quality": "good",
+      "error": null,
+      "elapsed_seconds": 16.1,
+      "search_triggered": true,
+      "search_queries": [
+        "任天堂 2026年3月13日 紧急新闻发布会 芯片短缺",
+        "Nintendo March 13 2026 emergency press conference chip shortage"
+      ],
+      "search_results_preview": [
+        "未找到相关搜索结果",
+        "未找到相关搜索结果"
+      ]
+    }
+  ]
+}

@@ -8,7 +8,10 @@ OPENAI_API_BASE = os.getenv("OPENAI_API_BASE", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gemini-2.0-flash")
 SCREENSHOT_HOTKEY = "alt+q"
 
-# 搜索引擎配置
-SEARCH_ENGINE = os.getenv("SEARCH_ENGINE", "duckduckgo")
-GOOGLE_SEARCH_API_KEY = os.getenv("GOOGLE_SEARCH_API_KEY", "")
-GOOGLE_SEARCH_CX = os.getenv("GOOGLE_SEARCH_CX", "")
+# 代理配置 - 设置全局环境变量让 httpx/openai 自动使用
+_http_proxy = os.getenv("HTTP_PROXY", "")
+_https_proxy = os.getenv("HTTPS_PROXY", "")
+if _http_proxy:
+    os.environ["HTTP_PROXY"] = _http_proxy
+if _https_proxy:
+    os.environ["HTTPS_PROXY"] = _https_proxy

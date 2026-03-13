@@ -6,3 +6,4 @@ python-dotenv>=1.0.0
 keyboard>=0.13.5
 pyperclip>=1.8.0
 requests>=2.31.0
+duckduckgo-search>=7.0.0
