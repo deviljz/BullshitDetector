@@ -6,10 +6,12 @@ from PyQt6.QtGui import QIcon, QAction
 from PyQt6.QtCore import QObject, pyqtSignal
 import keyboard
 
-from config import SCREENSHOT_HOTKEY, OPENAI_API_KEY
+from config import SCREENSHOT_HOTKEY
+from config.manager import load as load_config, get_active_provider_cfg
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot
 from ui.result_window import ResultWindow
+from ui.loading_overlay import LoadingOverlay
 
 
 class SignalBridge(QObject):
@@ -26,6 +28,7 @@ class BullshitDetectorApp:
         self.signals.show_result.connect(self._show_result)
         self._overlay = None
         self._result_window = None
+        self._loading = None
         self._capture_position = None
         self._setup_tray()
 
@@ -48,9 +51,8 @@ class BullshitDetectorApp:
     def _on_screenshot_taken(self, image, position=None):
         self._capture_position = position
         b64 = image_to_base64(image)
-        self._tray.showMessage(
-            "BullshitDetector", "正在分析中，请稍候...", QSystemTrayIcon.MessageIcon.Information, 3000
-        )
+        self._loading = LoadingOverlay()
+        self._loading.show()
         thread = threading.Thread(target=self._run_analysis, args=(b64,), daemon=True)
         thread.start()
 
@@ -59,15 +61,20 @@ class BullshitDetectorApp:
         self.signals.show_result.emit(result, self._capture_position)
 
     def _show_result(self, result: dict, position):
+        if self._loading:
+            self._loading.close()
+            self._loading = None
         self._result_window = ResultWindow(result, position)
         self._result_window.show()
 
     def run(self):
-        if not OPENAI_API_KEY:
+        api_key = get_active_provider_cfg().get("api_key", "")
+        if not api_key or api_key.startswith("YOUR_"):
             QMessageBox.critical(
                 None,
                 "配置错误",
-                "请在 .env 文件中设置 OPENAI_API_KEY。\n参考 .env.example 文件。",
+                "请在 config.json 中填入有效的 API Key。\n"
+                "参考 config.json.example 文件完成配置。",
             )
             return 1
 

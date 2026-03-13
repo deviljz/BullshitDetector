@@ -1,190 +1,462 @@
+import math
+
 from PyQt6.QtWidgets import (
     QApplication,
     QWidget,
     QVBoxLayout,
-    QTextEdit,
-    QPushButton,
     QHBoxLayout,
     QLabel,
-    QProgressBar,
+    QPushButton,
+    QScrollArea,
+    QFrame,
+    QSizePolicy,
+    QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import Qt, QTimer, QPoint
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize
+from PyQt6.QtGui import (
+    QFont,
+    QColor,
+    QPainter,
+    QPen,
+    QBrush,
+    QConicalGradient,
+    QPainterPath,
+    QTransform,
+)
 import pyperclip
 
 
-class ResultWindow(QWidget):
-    """显示 AI 分析结果的浮动窗口。"""
+# ── 印章配置 ──────────────────────────────────────────────────────────────────
+_STAMP_LEVELS = [
+    (80, "#ff5555", "一眼假"),
+    (55, "#ffb86c", "高度存疑"),
+    (30, "#f1fa8c", "有点水分"),
+    (0,  "#50fa7b", "纯天然"),
+]
 
-    AUTO_CLOSE_MS = 30000  # 30秒自动关闭
+
+def _stamp_config(bullshit_index: int) -> tuple[str, str]:
+    """返回 (颜色hex, 文字)"""
+    for threshold, color, text in _STAMP_LEVELS:
+        if bullshit_index >= threshold:
+            return color, text
+    return "#50fa7b", "纯天然"
+
+
+# ── 弧形仪表盘 ─────────────────────────────────────────────────────────────────
+class GaugeWidget(QWidget):
+    """半圆弧形仪表盘，显示扯淡指数 0-100。"""
+
+    _SIZE = 140
+
+    def __init__(self, value: int, parent=None):
+        super().__init__(parent)
+        self._value = max(0, min(100, value))
+        self.setFixedSize(self._SIZE, self._SIZE // 2 + 24)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        cx = self.width() // 2
+        cy = self.height() - 20
+        r = (self._SIZE - 20) // 2
+
+        rect = QRect(cx - r, cy - r, r * 2, r * 2)
+
+        # 背景弧
+        pen_bg = QPen(QColor("#313244"), 10, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen_bg)
+        painter.drawArc(rect, 0 * 16, 180 * 16)
+
+        # 颜色：绿→黄→红渐变按值
+        if self._value < 30:
+            arc_color = QColor("#50fa7b")
+        elif self._value < 55:
+            arc_color = QColor("#f1fa8c")
+        elif self._value < 80:
+            arc_color = QColor("#ffb86c")
+        else:
+            arc_color = QColor("#ff5555")
+
+        pen_fg = QPen(arc_color, 10, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+        painter.setPen(pen_fg)
+        # 从左侧 180° 开始，顺时针覆盖 value/100 * 180°
+        span = int(self._value / 100 * 180 * 16)
+        painter.drawArc(rect, 180 * 16, -span)
+
+        # 数字
+        painter.setPen(QPen(arc_color))
+        painter.setFont(QFont("Microsoft YaHei", 18, QFont.Weight.Bold))
+        painter.drawText(
+            QRect(cx - 30, cy - 26, 60, 30),
+            Qt.AlignmentFlag.AlignCenter,
+            str(self._value),
+        )
+        # 副标签
+        painter.setPen(QPen(QColor("#6c7086")))
+        painter.setFont(QFont("Microsoft YaHei", 8))
+        painter.drawText(
+            QRect(cx - 40, cy - 2, 80, 18),
+            Qt.AlignmentFlag.AlignCenter,
+            "扯淡指数 / 100",
+        )
+
+
+# ── 印章部件 ───────────────────────────────────────────────────────────────────
+class StampWidget(QWidget):
+    """旋转印章，绘制在右上角。"""
+
+    _W, _H = 110, 110
+
+    def __init__(self, bullshit_index: int, parent=None):
+        super().__init__(parent)
+        self._color_hex, self._text = _stamp_config(bullshit_index)
+        self.setFixedSize(self._W, self._H)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.translate(self._W / 2, self._H / 2)
+        painter.rotate(-28)
+
+        color = QColor(self._color_hex)
+        border_color = QColor(color)
+        border_color.setAlpha(200)
+
+        # 外框矩形
+        rect = QRect(-46, -22, 92, 44)
+        pen = QPen(border_color, 3)
+        painter.setPen(pen)
+        painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
+        painter.drawRoundedRect(rect, 6, 6)
+
+        # 文字
+        font = QFont("Microsoft YaHei", 16, QFont.Weight.Black)
+        painter.setFont(font)
+        painter.setPen(QPen(color))
+        painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
+
+
+# ── 可折叠区块 ─────────────────────────────────────────────────────────────────
+class CollapsibleSection(QWidget):
+    def __init__(self, title: str, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self._toggle_btn = QPushButton(f"▶ {title}")
+        self._toggle_btn.setCheckable(True)
+        self._toggle_btn.setChecked(False)
+        self._toggle_btn.setStyleSheet(
+            "QPushButton { background: transparent; color: #6c7086; "
+            "border: none; text-align: left; font-size: 12px; padding: 2px 0; }"
+            "QPushButton:hover { color: #cdd6f4; }"
+            "QPushButton:checked { color: #89b4fa; }"
+        )
+        self._toggle_btn.clicked.connect(self._on_toggle)
+        layout.addWidget(self._toggle_btn)
+
+        self._content = QWidget()
+        self._content.setVisible(False)
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(12, 4, 0, 4)
+        self._content_layout.setSpacing(3)
+        layout.addWidget(self._content)
+
+    def _on_toggle(self, checked: bool):
+        self._toggle_btn.setText(
+            f"{'▼' if checked else '▶'} {self._toggle_btn.text()[2:]}"
+        )
+        self._content.setVisible(checked)
+
+    def add_line(self, text: str, color: str = "#a6adc8"):
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._content_layout.addWidget(lbl)
+
+
+# ── 主卡片窗口 ─────────────────────────────────────────────────────────────────
+class ResultWindow(QWidget):
+    """赛博朋克风格无边框结果卡片。"""
+
+    AUTO_CLOSE_MS = 60_000  # 60秒自动关闭
 
     def __init__(self, result: dict, position: tuple | None = None):
         super().__init__()
         self._result = result
         self._position = position
+        self._drag_pos: QPoint | None = None
+        self._init_window()
         self._init_ui()
         self._position_window()
         self._start_auto_close()
 
-    def _init_ui(self):
-        self.setWindowTitle("BullshitDetector - 鉴定结果")
+    # ── 窗口属性 ───────────────────────────────────────────────────────────────
+    def _init_window(self):
         self.setWindowFlags(
-            Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Window
+            Qt.WindowType.FramelessWindowHint
+            | Qt.WindowType.WindowStaysOnTopHint
+            | Qt.WindowType.Tool
         )
-        self.setMinimumSize(520, 400)
-        self.resize(600, 560)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(560)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(40)
+        shadow.setOffset(0, 8)
+        shadow.setColor(QColor(0, 0, 0, 180))
+        self.setGraphicsEffect(shadow)
 
-        # 标题
-        is_fake = self._result.get("is_fake", False)
-        confidence = self._result.get("confidence", 0.5)
-        bs_index = self._result.get("bullshit_index", 50)
+    # ── UI 构建 ────────────────────────────────────────────────────────────────
+    def _init_ui(self):
+        # 新 schema 解包
+        header = self._result.get("header", {})
+        bs_index = header.get("bullshit_index") or self._result.get("bullshit_index", 50) or 50
+        truth_label = header.get("truth_label", "")
+        risk_level = header.get("risk_level", "")
+        verdict_text = header.get("verdict", "")
 
-        verdict_text = "假的！" if is_fake else "基本属实"
-        verdict_color = "#f38ba8" if is_fake else "#a6e3a1"
-
-        title = QLabel(f"鉴定结果：{verdict_text}")
-        title.setFont(QFont("Microsoft YaHei", 16, QFont.Weight.Bold))
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet(f"color: {verdict_color};")
-        layout.addWidget(title)
-
-        # Bullshit 指数进度条
-        bs_label = QLabel(f"扯淡指数：{bs_index}/100（置信度 {confidence:.0%}）")
-        bs_label.setFont(QFont("Microsoft YaHei", 11))
-        bs_label.setStyleSheet("color: #cdd6f4;")
-        layout.addWidget(bs_label)
-
-        bs_bar = QProgressBar()
-        bs_bar.setRange(0, 100)
-        bs_bar.setValue(bs_index)
-        bar_color = "#a6e3a1" if bs_index < 30 else "#f9e2af" if bs_index < 70 else "#f38ba8"
-        bs_bar.setStyleSheet(
-            f"QProgressBar {{ background: #313244; border-radius: 6px; height: 18px; text-align: center; color: #cdd6f4; }}"
-            f"QProgressBar::chunk {{ background: {bar_color}; border-radius: 6px; }}"
-        )
-        layout.addWidget(bs_bar)
-
-        # 毒舌锐评
-        roast = self._result.get("roast", "")
-        if roast:
-            roast_label = QLabel(f"💬 {roast}")
-            roast_label.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
-            roast_label.setWordWrap(True)
-            roast_label.setStyleSheet(
-                "color: #f9e2af; background: #313244; border-radius: 8px; padding: 12px;"
-            )
-            layout.addWidget(roast_label)
-
-        # 详细分析
-        detail_text = self._build_detail_markdown()
-        text_edit = QTextEdit()
-        text_edit.setReadOnly(True)
-        text_edit.setMarkdown(detail_text)
-        text_edit.setFont(QFont("Microsoft YaHei", 11))
-        text_edit.setStyleSheet(
-            "QTextEdit { background: #1e1e2e; color: #cdd6f4; "
-            "border: 1px solid #45475a; border-radius: 8px; padding: 12px; }"
-        )
-        layout.addWidget(text_edit)
-
-        # 错误提示
+        radar = self._result.get("radar_chart", {})
+        report = self._result.get("investigation_report", {})
+        toxic = self._result.get("toxic_review", "")
+        flaw_list: list = self._result.get("flaw_list", [])
+        one_line = self._result.get("one_line_summary", "")
         error = self._result.get("error")
-        if error:
-            err_label = QLabel(f"⚠️ {error}")
-            err_label.setStyleSheet("color: #f38ba8; padding: 4px;")
-            layout.addWidget(err_label)
 
-        # 按钮
-        btn_layout = QHBoxLayout()
+        # 外层容器（带圆角背景）
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
 
-        copy_btn = QPushButton("复制结果")
-        copy_btn.setStyleSheet(
-            "QPushButton { background: #89b4fa; color: #1e1e2e; "
-            "border-radius: 6px; padding: 8px 20px; font-weight: bold; }"
-            "QPushButton:hover { background: #74c7ec; }"
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            "#card {"
+            "  background: rgba(24, 24, 37, 242);"
+            "  border-radius: 18px;"
+            "  border: 1px solid #313244;"
+            "}"
         )
-        copy_btn.clicked.connect(self._copy_result)
-        btn_layout.addWidget(copy_btn)
+        outer.addWidget(card)
 
-        close_btn = QPushButton("关闭")
+        main_layout = QVBoxLayout(card)
+        main_layout.setContentsMargins(24, 20, 24, 20)
+        main_layout.setSpacing(14)
+
+        # ── 顶部：仪表盘 + 印章 + 关闭 ────────────────────────────────────────
+        top_row = QHBoxLayout()
+        top_row.setSpacing(12)
+
+        gauge = GaugeWidget(bs_index)
+        top_row.addWidget(gauge, alignment=Qt.AlignmentFlag.AlignBottom)
+
+        # risk_level + verdict 竖排
+        meta_col = QVBoxLayout()
+        meta_col.setAlignment(Qt.AlignmentFlag.AlignBottom)
+        meta_col.setSpacing(4)
+        if risk_level:
+            rl_lbl = QLabel(risk_level)
+            rl_lbl.setStyleSheet("color: #cdd6f4; font-size: 13px; font-weight: bold;")
+            meta_col.addWidget(rl_lbl)
+        if truth_label:
+            tl_lbl = QLabel(truth_label)
+            tl_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
+            tl_lbl.setWordWrap(True)
+            meta_col.addWidget(tl_lbl)
+        top_row.addLayout(meta_col)
+
+        top_row.addStretch()
+
+        stamp = StampWidget(bs_index)
+        top_row.addWidget(stamp, alignment=Qt.AlignmentFlag.AlignTop)
+
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
         close_btn.setStyleSheet(
-            "QPushButton { background: #45475a; color: #cdd6f4; "
-            "border-radius: 6px; padding: 8px 20px; font-weight: bold; }"
-            "QPushButton:hover { background: #585b70; }"
+            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
+            "QPushButton:hover { background: #ff5555; color: #fff; }"
         )
         close_btn.clicked.connect(self.close)
-        btn_layout.addWidget(close_btn)
+        top_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
-        layout.addLayout(btn_layout)
-        self.setStyleSheet("QWidget { background: #181825; }")
+        main_layout.addLayout(top_row)
 
-    def _build_detail_markdown(self) -> str:
-        lines = []
-        claims = self._result.get("claims", [])
-        if claims:
-            lines.append("### 逐条分析")
-            for c in claims:
-                verdict = c.get("verdict", "")
-                claim = c.get("claim", "")
-                reason = c.get("reason", "")
-                lines.append(f"- {verdict} **{claim}**\n  {reason}")
+        # ── 核心判决 verdict ──────────────────────────────────────────────────
+        if verdict_text:
+            v_lbl = QLabel(verdict_text)
+            v_lbl.setWordWrap(True)
+            v_lbl.setStyleSheet(
+                "color: #cdd6f4; font-size: 12px;"
+                "background: rgba(69,71,90,120);"
+                "border-radius: 8px; padding: 8px 12px;"
+            )
+            main_layout.addWidget(v_lbl)
 
-        tactics = self._result.get("tactics", [])
-        if tactics:
-            lines.append("\n### 识别话术")
-            lines.append("、".join(tactics))
+        # ── 分割线 ──────────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        main_layout.addWidget(sep)
 
-        return "\n\n".join(lines) if lines else "*暂无详细分析*"
+        # ── 毒舌锐评 ─────────────────────────────────────────────────────────────
+        if toxic:
+            toxic_label = QLabel(toxic)
+            toxic_label.setWordWrap(True)
+            toxic_label.setFont(QFont("Microsoft YaHei", 13, QFont.Weight.Bold))
+            toxic_label.setStyleSheet(
+                "color: #f9e2af;"
+                "background: rgba(249, 226, 175, 18);"
+                "border-radius: 10px;"
+                "padding: 12px 14px;"
+            )
+            main_layout.addWidget(toxic_label)
 
+        # ── 错误提示 ──────────────────────────────────────────────────────────────
+        if error:
+            err = QLabel(f"⚠ {error}")
+            err.setWordWrap(True)
+            err.setStyleSheet("color: #f38ba8; font-size: 12px; padding: 4px 0;")
+            main_layout.addWidget(err)
+
+        # ── 折叠：多维评分雷达 ─────────────────────────────────────────────────
+        if any(radar.values()):
+            radar_sec = CollapsibleSection("多维评分雷达")
+            _RADAR_LABELS = {
+                "logic_consistency": ("逻辑自洽", "#89b4fa"),
+                "source_authority":  ("来源权威", "#a6e3a1"),
+                "agitation_level":   ("煽动烈度", "#f38ba8"),
+                "search_match":      ("搜索核实", "#cba6f7"),
+            }
+            for key, (label, color) in _RADAR_LABELS.items():
+                val = radar.get(key, 0)
+                bar = "█" * val + "░" * (5 - val)
+                radar_sec.add_line(f"{label}  [{bar}]  {val}/5", color)
+            main_layout.addWidget(radar_sec)
+
+        # ── 折叠：侦查报告 ────────────────────────────────────────────────────────
+        if any(report.values()):
+            inv_sec = CollapsibleSection("侦查报告")
+            _REPORT_LABELS = [
+                ("time_check",    "时间核查", "#f9e2af"),
+                ("entity_check",  "实体核查", "#f9e2af"),
+                ("physics_check", "常识核查", "#f9e2af"),
+            ]
+            for key, label, color in _REPORT_LABELS:
+                val = report.get(key, "")
+                if val and val != "未核查":
+                    inv_sec.add_line(f"[{label}] {val}", color)
+            main_layout.addWidget(inv_sec)
+
+        # ── 折叠：破绽列表 ────────────────────────────────────────────────────────
+        if flaw_list:
+            flaw_sec = CollapsibleSection("破绽列表")
+            for item in flaw_list:
+                flaw_sec.add_line(f"• {item}", "#f38ba8")
+            main_layout.addWidget(flaw_sec)
+
+        # ── 一句话总结 ───────────────────────────────────────────────────────────
+        if one_line:
+            ol_lbl = QLabel(one_line)
+            ol_lbl.setWordWrap(True)
+            ol_lbl.setStyleSheet(
+                "color: #6c7086; font-size: 11px; font-style: italic; padding: 4px 0;"
+            )
+            main_layout.addWidget(ol_lbl)
+
+        # ── 底部：复制按钮 ────────────────────────────────────────────────────────
+        copy_btn = QPushButton("复制结果")
+        copy_btn.setFixedHeight(32)
+        copy_btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #89b4fa; "
+            "border-radius: 8px; font-size: 12px; font-weight: bold; }"
+            "QPushButton:hover { background: #45475a; }"
+        )
+        copy_btn.clicked.connect(self._copy_result)
+        main_layout.addWidget(copy_btn)
+
+    # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _position_window(self):
-        if self._position:
-            x, y = self._position
+        self.adjustSize()
+        if not self._position:
             screen = QApplication.primaryScreen()
             if screen:
                 geo = screen.availableGeometry()
-                # 确保窗口不超出屏幕（考虑多显示器偏移）
-                win_w, win_h = self.width(), self.height()
-                x = min(x, geo.x() + geo.width() - win_w)
-                y = min(y, geo.y() + geo.height() - win_h)
-                x = max(geo.x(), x)
-                y = max(geo.y(), y)
-                self.move(QPoint(x, y))
+                self.move(
+                    geo.x() + geo.width() - self.width() - 40,
+                    geo.y() + 60,
+                )
+            return
 
+        x, y = self._position
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            w, h = self.width(), self.height()
+            x = min(x + 12, geo.x() + geo.width() - w - 8)
+            y = min(y, geo.y() + geo.height() - h - 8)
+            x = max(geo.x() + 8, x)
+            y = max(geo.y() + 8, y)
+            self.move(QPoint(x, y))
+
+    # ── 点击外部关闭 ──────────────────────────────────────────────────────────
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.activateWindow()
+        self.setFocus()
+
+    def mousePressEvent(self, event):
+        # 支持拖拽移动窗口
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event):
+        if self._drag_pos and event.buttons() & Qt.MouseButton.LeftButton:
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = None
+
+    # ── 自动关闭 ──────────────────────────────────────────────────────────────
     def _start_auto_close(self):
-        self._auto_close_timer = QTimer(self)
-        self._auto_close_timer.setSingleShot(True)
-        self._auto_close_timer.timeout.connect(self.close)
-        self._auto_close_timer.start(self.AUTO_CLOSE_MS)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.close)
+        self._timer.start(self.AUTO_CLOSE_MS)
 
+    # ── 复制 ──────────────────────────────────────────────────────────────────
     def _copy_result(self):
-        text = self._format_copy_text()
+        lines = []
+        header = self._result.get("header", {})
+        bs = header.get("bullshit_index", 50)
+        truth_label = header.get("truth_label", "")
+        risk_level = header.get("risk_level", "")
+        verdict = header.get("verdict", "")
+        toxic = self._result.get("toxic_review", "")
+        summary = self._result.get("one_line_summary", "")
+        flaws = self._result.get("flaw_list", [])
+
+        lines.append(f"扯淡指数：{bs}/100  {risk_level}")
+        if truth_label:
+            lines.append(f"真实度：{truth_label}")
+        if verdict:
+            lines.append(f"判决：{verdict}")
+        if toxic:
+            lines.append(f"\n锐评：{toxic}")
+        if summary:
+            lines.append(f"\n总结：{summary}")
+        if flaws:
+            lines.append("\n破绽：")
+            for f in flaws:
+                lines.append(f"  • {f}")
+
+        text = "\n".join(lines)
         try:
             pyperclip.copy(text)
         except Exception:
-            clipboard = QApplication.clipboard()
-            if clipboard:
-                clipboard.setText(text)
-
-    def _format_copy_text(self) -> str:
-        lines = []
-        is_fake = self._result.get("is_fake", False)
-        confidence = self._result.get("confidence", 0.5)
-        bs_index = self._result.get("bullshit_index", 50)
-        roast = self._result.get("roast", "")
-
-        lines.append(f"鉴定结果：{'假的！' if is_fake else '基本属实'}")
-        lines.append(f"扯淡指数：{bs_index}/100（置信度 {confidence:.0%}）")
-        if roast:
-            lines.append(f"锐评：{roast}")
-
-        claims = self._result.get("claims", [])
-        if claims:
-            lines.append("\n逐条分析：")
-            for c in claims:
-                lines.append(f"  {c.get('verdict', '')} {c.get('claim', '')} - {c.get('reason', '')}")
-
-        return "\n".join(lines)
+            cb = QApplication.clipboard()
+            if cb:
+                cb.setText(text)

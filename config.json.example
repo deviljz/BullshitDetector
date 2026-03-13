@@ -1,0 +1,35 @@
+{
+  "_comment": "将此文件复制为 config.json，填入你的 API Key，修改 active_provider 切换模型",
+  "active_provider": "openai_compatible",
+  "providers": {
+    "openai_compatible": {
+      "_comment": "通用 OpenAI 兼容接口，默认配置为 Gemini",
+      "api_key": "AIzaxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
+      "model": "gemini-2.0-flash"
+    },
+    "deepseek": {
+      "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxx",
+      "base_url": "https://api.deepseek.com",
+      "model": "deepseek-chat"
+    },
+    "kimi": {
+      "_comment": "Kimi 月之暗面，moonshot-v1-32k 支持长上下文",
+      "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxx",
+      "base_url": "https://api.moonshot.cn/v1",
+      "model": "moonshot-v1-32k"
+    },
+    "qwen": {
+      "_comment": "通义千问视觉模型",
+      "api_key": "sk-xxxxxxxxxxxxxxxxxxxxxxxx",
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      "model": "qwen-vl-max"
+    },
+    "zhipu": {
+      "_comment": "智谱 GLM 视觉模型",
+      "api_key": "xxxxxxxxxxxxxxxxxxxxxxxx.xxxxxxxx",
+      "base_url": "https://open.bigmodel.cn/api/paas/v4/",
+      "model": "glm-4v-flash"
+    }
+  }
+}

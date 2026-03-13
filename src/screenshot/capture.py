@@ -29,13 +29,27 @@ class ScreenshotOverlay(QWidget):
 
     def paintEvent(self, event):
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 80))
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 100))
         if not self._selection.isNull():
+            rect = self._selection.normalized()
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_Clear)
-            painter.fillRect(self._selection.normalized(), Qt.GlobalColor.transparent)
+            painter.fillRect(rect, Qt.GlobalColor.transparent)
             painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_SourceOver)
-            painter.setPen(QColor(0, 174, 255))
-            painter.drawRect(self._selection.normalized())
+            # 亮青色 2px 边框
+            from PyQt6.QtGui import QPen
+            pen = QPen(QColor(0, 255, 220), 2)
+            painter.setPen(pen)
+            painter.drawRect(rect)
+            # 尺寸提示文字
+            if rect.width() > 60 and rect.height() > 30:
+                painter.setPen(QColor(0, 255, 220))
+                painter.setFont(painter.font())
+                painter.drawText(
+                    rect.x() + 4,
+                    rect.y() + 16,
+                    f"{rect.width()} × {rect.height()}",
+                )
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
