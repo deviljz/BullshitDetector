@@ -9,7 +9,7 @@ class SearchProvider:
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
         try:
-            with DDGS() as ddgs:
+            with DDGS(timeout=15) as ddgs:
                 results = list(ddgs.text(query, max_results=max_results))
                 return [
                     {"title": r["title"], "snippet": r["body"], "url": r["href"]}
