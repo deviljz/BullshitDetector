@@ -1,23 +1,23 @@
 {
-  "accuracy": 66.66666666666666,
+  "accuracy": 83.33333333333334,
   "results": [
     {
       "id": 1,
       "type": "real_news",
       "category": "宏观经济/金融政策",
-      "expected_level": "high",
+      "expected_level": "very_low",
       "is_fake": true,
       "confidence": 1.0,
-      "bullshit_index": 95,
-      "correct": false,
-      "roast": "这则新闻比我的头发还稀有，因为根本不存在。",
+      "bullshit_index": 90,
+      "correct": true,
+      "roast": "恭喜这篇神作，完美实现'无中生有'的艺术境界，活生生把未来三天才能生效的假新闻提前送达，金融圈的'薛定谔的猫'都得甘拜下风！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 13.8,
+      "elapsed_seconds": 15.5,
       "search_triggered": true,
       "search_queries": [
-        "中国人民银行 降准 2026年3月10日 6.6%",
-        "People's Bank of China RRR cut March 10 2026 6.6%"
+        "中国人民银行 降准 2026年3月",
+        "People's Bank of China RRR cut March 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
@@ -28,23 +28,23 @@
       "id": 2,
       "type": "real_news",
       "category": "古生物发现",
-      "expected_level": "high",
+      "expected_level": "very_low",
       "is_fake": true,
-      "confidence": 0.95,
-      "bullshit_index": 90,
-      "correct": false,
-      "roast": "《自然》杂志要是能提前一个月刊登消息，那它就是《预言》杂志了。这内容纯属拿科学名词和权威机构给自己编的故事壮胆，但日期一摆，牛鬼蛇神立马现原形。",
+      "confidence": 1.0,
+      "bullshit_index": 95,
+      "correct": true,
+      "roast": "这篇新闻完美诠释了什么是‘嘴巴一张，宇宙大爆炸’，连《自然》杂志都得‘被’提前发布！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 13.9,
+      "elapsed_seconds": 17.3,
       "search_triggered": true,
       "search_queries": [
-        "自然杂志 2026年2月 中国科学院古脊椎动物与古人类研究所 云南 化石 禄丰龙",
-        "Nature 2026 February IVPP Yunnan fossil Lufengosaurus"
+        "《自然》杂志 2026年2月刊 中国科学院 古脊椎动物与古人类研究所 禄丰化石 禄丰龙属",
+        "Nature magazine February 2026 Chinese Academy of Sciences Institute of Vertebrate Paleontology and Paleoanthropology Lufeng fossil Lufengosaurus"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
-        "1. 研究生阶段发一篇 Nature 正刊是什么水平？能横着走吗？\n   你别说，真的有，某普通985 国家重点实验室，大三开始进组做东西，研一就发了 nature （还是2018年的时候哦），材料是他合成出来的，这个一作没得洗。 …\n   来源: https://www.zhihu.com/question/451447567\n2. 清华大学本科生一作发表《Nature》攻克核光钟研制的瓶颈，此"
+        "未找到相关搜索结果"
       ]
     },
     {
@@ -53,20 +53,24 @@
       "category": "宏观经济/金融政策",
       "expected_level": "low",
       "is_fake": true,
-      "confidence": 0.95,
+      "confidence": 1.0,
       "bullshit_index": 95,
       "correct": true,
-      "roast": "这标题的惊叹号比内容里的事实还多，赶紧买房不如赶紧买份常识险。",
+      "roast": "这不叫‘史诗级放水’，这叫‘史诗级放屁’，声音响亮，内容空洞，还带着一股浓烈的韭菜味儿！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 24.2,
+      "elapsed_seconds": 22.9,
       "search_triggered": true,
       "search_queries": [
-        "央行 降准 5000亿 2026年3月",
-        "China central bank RRR cut 500 billion March 2026"
+        "央行 降准 2026年3月",
+        "中国人民银行 降准 释放资金 2026年3月",
+        "PBoC RRR cut March 2026",
+        "China central bank reserve requirement cut March 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
+        "未找到相关搜索结果",
+        "1. 中国的PBOC3.0标准和emv标准的本质区别是什么？是否兼容？\n   2.PBOC卡是不兼容EMV么？ 飞客的信用卡版上，总碰到有人说VISA或者MasterCard的芯片卡采用的是EMV标准，银联的芯片卡是PBOC标准，所以是不 …\n   来源: https://www.zhihu.com/question/38075421\n2. 建行VISA双标卡升级芯片卡了 - 建设银行讨论区 - ",
         "未找到相关搜索结果"
       ]
     },
@@ -79,20 +83,16 @@
       "confidence": 0.95,
       "bullshit_index": 90,
       "correct": true,
-      "roast": "这标题的炸裂程度，大概只比你手机爆炸的几率高一点，内容嘛，也就比你考试交白卷还空洞。",
+      "roast": "这截图，是把《黑神话：悟空》的期待值当成沙拉酱，随便抹在AIGC的边角料上，妄图烹制出一道“惊天大瓜”。结果呢？查无此瓜，只有一碗馊掉的标题党陈饭，隔着屏幕都能闻到一股浓烈的2021年味儿。",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 20.2,
+      "elapsed_seconds": 12.6,
       "search_triggered": true,
       "search_queries": [
-        "《黑神话：悟空》制作人冯骥 深夜发文 危机",
-        "Black Myth: Wukong producer Feng Ji late night post crisis",
-        "《黑神话：悟空》 内部矛盾",
-        "Black Myth: Wukong internal conflicts"
+        "黑神话 悟空 制作人 冯骥 深夜发文 危机 内部矛盾",
+        "Black Myth Wukong producer Feng Ji late night post crisis internal conflict"
       ],
       "search_results_preview": [
-        "未找到相关搜索结果",
-        "未找到相关搜索结果",
         "未找到相关搜索结果",
         "未找到相关搜索结果"
       ]
@@ -104,20 +104,20 @@
       "expected_level": "low",
       "is_fake": true,
       "confidence": 1.0,
-      "bullshit_index": 95,
+      "bullshit_index": 98,
       "correct": true,
-      "roast": "这不叫紧急扩散，这叫紧急散布科幻谣言，科学家看了都得连夜给《侏罗纪公园》编剧发奖金。",
+      "roast": "这不仅是造谣，简直是对物理定律和生物常识的当众强奸！下次编故事，请至少查一下DNA的保质期，谢谢！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 29.2,
+      "elapsed_seconds": 18.3,
       "search_triggered": true,
       "search_queries": [
-        "云南禄丰 恐龙化石 出土 软组织 DNA 克隆 2026年3月",
-        "Lufeng Yunnan dinosaur fossil unearthed soft tissue DNA clone March 2026"
+        "云南禄丰 恐龙化石 出土 2026年3月",
+        "Yunnan Lufeng dinosaur fossil discovery March 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
-        "未找到相关搜索结果"
+        "1. Yunnan - Wikipedia\n   Professional sporting teams in Yunnan have included the now defunct Yunnan Bulls in the Chinese Basketball Association and Yunnan Hongta in the Chinese Jia-A League.\n   来源: ht"
       ]
     },
     {
@@ -126,27 +126,23 @@
       "category": "未解之谜",
       "expected_level": "low",
       "is_fake": true,
-      "confidence": 1.0,
+      "confidence": 0.98,
       "bullshit_index": 95,
       "correct": true,
-      "roast": "这UFO残骸视频估计是AI梦见的，NASA局长的声明估计是在平行宇宙发的。2026年3月？这新闻比UFO还科幻！",
+      "roast": "这哪是新闻，这是编剧在国会山脚下，NASA大门前，用'重大突破'的滤镜，给地球人演了一出'外星人来了但你们都不知道'的空气话剧！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 21.0,
+      "elapsed_seconds": 19.3,
       "search_triggered": true,
       "search_queries": [
-        "David Grusch Congress testimony March 2026 UFO",
-        "大卫·格鲁什 2026年3月 国会听证 UFO",
-        "NASA Administrator statement UFO March 2026",
-        "NASA 局长 声明 UFO 2026年3月",
-        "Pentagon UFO debris video March 2026",
-        "五角大楼 UFO残骸视频 2026年3月"
+        "大卫·格鲁什 UFO 国会听证 2026年3月 五角大楼 视频",
+        "David Grusch UFO Congress hearing March 2026 Pentagon video",
+        "NASA 局长 UFO 残骸 声明 2026年3月",
+        "NASA Administrator UFO wreckage statement March 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
-        "未找到相关搜索结果",
-        "未找到相关搜索结果",
-        "1. 怎么样在NASA官网查询生日时宇宙照片？（最好是详细图解）？\n   Mar 29, 2020 · 还没完！ 再教大家一下怎么要出图片 往下翻到： 有各种图片规格，点击你选中的一个→ 再长按图片→ 点击保存图片，就完成啦～ 最后附上一个nasa查询图片的网址 images.nasa.gov 阅读 …\n   来源: https://www.zhihu.com/question/383501333",
+        "1. 如何评价大胃袋良子这一块？ - 知乎\n   说个不一样的点 良子没有思考能力。 我血压150的时候，大脑工作就很困难，头疼，无法进行整段思考，无法逻辑推演，血压降下来后才恢复。 良子，血压260。 很多人教良子怎么做直播，怎么圈钱， …\n   来源: https://www.zhihu.com/question/7272414588\n2. 休谟（David Hume） - 知乎\n   大卫·",
         "未找到相关搜索结果",
         "未找到相关搜索结果"
       ]
@@ -156,68 +152,52 @@
       "type": "fabricated",
       "category": "未解之谜",
       "expected_level": "very_low",
-      "is_fake": true,
-      "confidence": 1.0,
-      "bullshit_index": 95,
-      "correct": true,
-      "roast": "MIT要是真有这发现，你以为论文是提交给哪儿？八成是投给了《走进科学》的编剧组。",
+      "is_fake": null,
+      "confidence": 0.0,
+      "bullshit_index": null,
+      "correct": false,
+      "roast": "AI 返回了无法解析的结果，分析失败",
       "roast_quality": "good",
-      "error": null,
-      "elapsed_seconds": 20.0,
-      "search_triggered": true,
-      "search_queries": [
-        "MIT 量子物理实验室 平行宇宙 文明 2026年3月12日",
-        "MIT Quantum Physics Lab parallel universe civilization March 12 2026"
-      ],
-      "search_results_preview": [
-        "未找到相关搜索结果",
-        "未找到相关搜索结果"
-      ]
+      "error": "JSONDecodeError: No JSON found: line 1 column 1 (char 0)",
+      "elapsed_seconds": 27.6,
+      "search_triggered": false,
+      "search_queries": [],
+      "search_results_preview": []
     },
     {
       "id": 8,
       "type": "fabricated",
       "category": "独立游戏资讯",
       "expected_level": "very_low",
-      "is_fake": true,
-      "confidence": 1.0,
-      "bullshit_index": 100,
-      "correct": true,
-      "roast": "《半条命3》的发布消息每年都会来一次，下次再有G胖亲自宣布《半条命3》搭载Source 4引擎登陆PS7，麻烦把我也叫上，我想看看Steam服务器怎么在没发布会的情况下崩溃。",
+      "is_fake": null,
+      "confidence": 0.0,
+      "bullshit_index": null,
+      "correct": false,
+      "roast": "AI 返回了无法解析的结果，分析失败",
       "roast_quality": "good",
-      "error": null,
-      "elapsed_seconds": 30.1,
-      "search_triggered": true,
-      "search_queries": [
-        "GDC 2026 dates",
-        "GDC 2026 Half-Life 3 announcement Gabe Newell",
-        "PlayStation 6 release date",
-        "Half-Life 3 Source 3 engine VR"
-      ],
-      "search_results_preview": [
-        "未找到相关搜索结果",
-        "未找到相关搜索结果",
-        "未找到相关搜索结果",
-        "未找到相关搜索结果"
-      ]
+      "error": "JSONDecodeError: Expecting ',' delimiter: line 27 column 6 (char 1344)",
+      "elapsed_seconds": 28.2,
+      "search_triggered": false,
+      "search_queries": [],
+      "search_results_preview": []
     },
     {
       "id": 9,
       "type": "time_sensitive_real",
       "category": "突发国际新闻",
-      "expected_level": "high",
+      "expected_level": "very_low",
       "is_fake": true,
       "confidence": 1.0,
       "bullshit_index": 95,
-      "correct": false,
-      "roast": "连地震都能凭空捏造，路透社都得跟着你一起『震』惊。这地儿没地震，你脑袋怕是先地震了。",
+      "correct": true,
+      "roast": "恭喜这篇'新闻'荣获2026年度'最科幻谣言奖'，连时间都能篡改，请问是哆啦A梦借了你的时间机器来发稿吗？",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 12.2,
+      "elapsed_seconds": 10.8,
       "search_triggered": true,
       "search_queries": [
-        "土耳其 伊斯坦布尔 地震 2026年3月11日",
-        "earthquake Istanbul March 11 2026"
+        "Reuters March 11 2026 Istanbul earthquake",
+        "路透社 2026年3月11日 伊斯坦布尔 地震"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
@@ -228,19 +208,19 @@
       "id": 10,
       "type": "time_sensitive_real",
       "category": "宏观经济/金融政策",
-      "expected_level": "high",
+      "expected_level": "very_low",
       "is_fake": true,
       "confidence": 1.0,
       "bullshit_index": 95,
-      "correct": false,
-      "roast": "这美联储是开了个寂寞，会议新闻发布会和利率声明全凭嘴编，不愧是金融界的科幻作家。",
+      "correct": true,
+      "roast": "这截图里的美联储FOMC会议，开得比火星人大会还隐秘，估计只有截图中那个‘信息源’才能参加，简直是金融界的哈利·波特隐身衣！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 15.1,
+      "elapsed_seconds": 18.1,
       "search_triggered": true,
       "search_queries": [
-        "美联储 FOMC 会议 2026年3月12日 利率",
-        "Fed FOMC meeting March 12 2026 interest rate"
+        "美联储 FOMC会议 2026年3月12日",
+        "Federal Reserve FOMC meeting March 12 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
@@ -256,16 +236,16 @@
       "confidence": 1.0,
       "bullshit_index": 95,
       "correct": true,
-      "roast": "这则消息假得像刚从'时间穿越者的朋友圈'里捞出来，不仅日期和事件全凭编造，连油价都敢胡说八道，简直是把读者当成互联网'原始人'！",
+      "roast": "‘突发！’两个字一闪，我就知道又要跟一坨AIGC合成的假新闻屎打交道了。这篇‘报道’完美演绎了如何在2026年玩时空穿越，把‘查无此事’编成了‘震惊世界’，还把油价打回了石器时代，简直是编剧系的优秀毕业设计！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 16.5,
+      "elapsed_seconds": 24.5,
       "search_triggered": true,
       "search_queries": [
-        "伊朗最高领袖 哈梅内伊 2026年3月13日 解除石油出口限额",
-        "Iran Supreme Leader Khamenei March 13 2026 lift oil export limits",
-        "布伦特原油 跌破 55美元 2026年3月13日",
-        "Brent crude oil below 55 USD March 13 2026"
+        "伊朗最高领袖 哈梅内伊 电视讲话 解除石油出口限额 2026年3月13日",
+        "Iran Supreme Leader Khamenei national television oil export controls lifted March 13 2026",
+        "布伦特原油 价格 2026年3月13日",
+        "Brent crude oil price March 13 2026"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",
@@ -283,14 +263,14 @@
       "confidence": 1.0,
       "bullshit_index": 95,
       "correct": true,
-      "roast": "恭喜任天堂喜提2026年3月13日'被危机'称号，下次编新闻麻烦查下黄历，今天并不适合紧急发布会。",
+      "roast": "恭喜你，成功编造了一条今天发生的“大新闻”，可惜搜索引擎一键击穿你的皇帝新衣，这屎里有毒，请勿靠近！",
       "roast_quality": "good",
       "error": null,
-      "elapsed_seconds": 16.1,
+      "elapsed_seconds": 12.0,
       "search_triggered": true,
       "search_queries": [
-        "任天堂 2026年3月13日 紧急新闻发布会 芯片短缺",
-        "Nintendo March 13 2026 emergency press conference chip shortage"
+        "任天堂 芯片短缺 2026年3月13日 古川俊太郎 供应链危机",
+        "Nintendo chip shortage March 13 2026 Shuntaro Furukawa supply chain crisis"
       ],
       "search_results_preview": [
         "未找到相关搜索结果",

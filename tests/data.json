@@ -5,16 +5,16 @@
       "type": "real_news",
       "category": "宏观经济/金融政策",
       "input_text": "中国人民银行2026年3月10日发布公告，决定自2026年3月15日起下调金融机构存款准备金率0.25个百分点，加权平均存款准备金率降至约6.6%。此次降准预计释放长期资金约5000亿元，旨在保持银行体系流动性合理充裕，支持实体经济平稳健康发展。",
-      "expected_truth_level": "high",
-      "expected_flaw": "无"
+      "expected_truth_level": "very_low",
+      "expected_flaw": "AIGC伪造的2026年3月重大政策公告，权威媒体查无此事，属于时空穿越谣言"
     },
     {
       "id": 2,
       "type": "real_news",
       "category": "古生物发现",
       "input_text": "据《自然》杂志2026年2月刊报道，中国科学院古脊椎动物与古人类研究所团队在云南禄丰发现了一具保存完整的早侏罗世蜥脚类恐龙化石，距今约1.9亿年。研究人员通过CT扫描和同位素分析，确认该化石属于禄丰龙属的一个新种，为理解早期蜥脚类恐龙的演化提供了重要线索。该研究已通过同行评审。",
-      "expected_truth_level": "high",
-      "expected_flaw": "无"
+      "expected_truth_level": "very_low",
+      "expected_flaw": "AIGC伪造的学术论文报道，无法在《自然》杂志2026年2月刊中核实，属于学术缝合怪造假"
     },
     {
       "id": 3,
@@ -69,16 +69,16 @@
       "type": "time_sensitive_real",
       "category": "突发国际新闻",
       "input_text": "据路透社2026年3月11日报道，土耳其伊斯坦布尔当日发生6.2级地震，震源深度约10公里。土耳其灾害与应急管理署（AFAD）已启动紧急响应机制，多栋建筑出现损坏。目前暂无人员伤亡报告，当局正在进行排查评估。伊斯坦布尔市长呼吁市民保持冷静，远离受损建筑。",
-      "expected_truth_level": "high",
-      "expected_flaw": "无"
+      "expected_truth_level": "very_low",
+      "expected_flaw": "AIGC伪造的突发地震新闻，路透社查无此报道，属于挪用历史地震信息改换日期的时空穿越谣言"
     },
     {
       "id": 10,
       "type": "time_sensitive_real",
       "category": "宏观经济/金融政策",
       "input_text": "美联储于2026年3月12日结束为期两天的FOMC会议，宣布维持联邦基金利率在4.25%-4.50%区间不变。美联储主席鲍威尔在新闻发布会上表示，通胀虽有回落但仍高于2%的目标水平，委员会将继续根据经济数据审慎评估未来利率路径。市场此前已普遍预期本次按兵不动。",
-      "expected_truth_level": "high",
-      "expected_flaw": "无"
+      "expected_truth_level": "very_low",
+      "expected_flaw": "AIGC伪造的美联储FOMC决议，时间+利率区间数据无法核实，属于金融信息领域时空穿越谣言"
     },
     {
       "id": 11,
