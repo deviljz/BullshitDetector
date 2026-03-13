@@ -192,7 +192,7 @@ class ResultWindow(QWidget):
         self._drag_pos: QPoint | None = None
         self._init_window()
         self._init_ui()
-        self._position_window()
+        QTimer.singleShot(0, self._position_window)
         self._start_auto_close()
 
     # ── 窗口属性 ───────────────────────────────────────────────────────────────
