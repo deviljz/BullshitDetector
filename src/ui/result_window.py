@@ -147,9 +147,9 @@ class CollapsibleSection(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
 
-        self._toggle_btn = QPushButton(f"▶ {title}")
+        self._toggle_btn = QPushButton(f"▼ {title}")
         self._toggle_btn.setCheckable(True)
-        self._toggle_btn.setChecked(False)
+        self._toggle_btn.setChecked(True)
         self._toggle_btn.setStyleSheet(
             "QPushButton { background: transparent; color: #6c7086; "
             "border: none; text-align: left; font-size: 12px; padding: 2px 0; }"
@@ -160,7 +160,7 @@ class CollapsibleSection(QWidget):
         layout.addWidget(self._toggle_btn)
 
         self._content = QWidget()
-        self._content.setVisible(False)
+        self._content.setVisible(True)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(12, 4, 0, 4)
         self._content_layout.setSpacing(3)
