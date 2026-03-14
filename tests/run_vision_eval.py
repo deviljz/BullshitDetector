@@ -48,25 +48,25 @@ EXPECTATIONS: dict[str, dict] = {
         "expected_bs_min": 80,
         "reason": "新规：官方数据类截图若搜索无法核实原始报道，判定为高仿数据篡改屎",
     },
-    "485b9a1ada6b21cc3687da2c1fd85835.jpg": {
+    "real_weibo_rmrb_iraq_engagement.jpg": {
         "label": "人民日报订婚报道（真实社交媒体截图）",
         "expected_fake": False,
         "expected_bs_min": 0,
         "reason": "人民日报微博确实发布了伊拉克小伙与中国女生的订婚报道，外层水晶苍蝇拍的批评也是真实的舆论。整张图是真实社交媒体事件的截图，没有造假",
     },
-    "7679a22f6713b1684a8c91e76a94dd31.jpg": {
+    "fake_weibo_iran_missile_graffiti.jpg": {
         "label": "伊朗导弹图+后期加字（移花接木合成假信息）",
         "expected_fake": True,
         "expected_bs_min": 80,
         "reason": "真实导弹图片被加上虚假文字，整体为移花接木式造假",
     },
-    "90044206a5af0e27f0d7c6876020ea9c.jpg": {
+    "fake_nga_silverstein_911_hint.jpg": {
         "label": "Silverstein购楼+9/11阴谋论暗示（真实外壳包裹阴谋论）",
         "expected_fake": True,
         "expected_bs_min": 70,
         "reason": "购楼/保险/租约均属实，但帖子核心目的是传播9/11阴谋论，属半真半假操纵手法",
     },
-    "e7ec7463e3c077e87201e0c3e4b8e087.jpg": {
+    "real_baidu_iran_marriage_age.jpg": {
         "label": "伊朗结婚年龄（有争议但有法律依据，合理存疑）",
         "expected_fake": False,
         "expected_bs_min": 0,
@@ -230,11 +230,13 @@ def _fmt_bs(value) -> str:
     return f"{value:3d}/100 [{bar}]"
 
 
-def run_eval() -> list[dict]:
+def run_eval(only: list[str] | None = None) -> list[dict]:
     images = sorted(
         p for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp")
         for p in FIXTURES_DIR.glob(ext)
     )
+    if only:
+        images = [p for p in images if p.name in only]
     if not images:
         print("❌ tests/fixtures/ 下没有图片，请先运行 generate_test_images.py")
         sys.exit(1)
@@ -383,6 +385,11 @@ def print_summary(records: list[dict]) -> None:
 
 
 if __name__ == "__main__":
-    records = run_eval()
+    # 支持 --only file1.jpg file2.png 只跑指定图片
+    _only = None
+    if "--only" in sys.argv:
+        _idx = sys.argv.index("--only")
+        _only = sys.argv[_idx + 1:]
+    records = run_eval(only=_only)
     print_summary(records)
     write_report(records)

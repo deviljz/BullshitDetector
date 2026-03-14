@@ -1,7 +1,7 @@
 """Function Calling 工具定义 + 搜索执行"""
 
 from typing import List
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 
 
 class SearchProvider:

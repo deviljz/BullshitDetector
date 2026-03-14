@@ -296,6 +296,14 @@ class ResultWindow(QWidget):
             )
             main_layout.addWidget(v_lbl)
 
+        # ── 来源识别 source_origin ─────────────────────────────────────────────
+        source_origin = report.get("source_origin", "")
+        if source_origin and source_origin != "无法识别":
+            src_lbl = QLabel(f"📌 来源：{source_origin}")
+            src_lbl.setWordWrap(True)
+            src_lbl.setStyleSheet("color: #6c7086; font-size: 11px; padding: 2px 0;")
+            main_layout.addWidget(src_lbl)
+
         # ── 分割线 ──────────────────────────────────────────────────────────────
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -322,6 +330,54 @@ class ResultWindow(QWidget):
             err.setStyleSheet("color: #f38ba8; font-size: 12px; padding: 4px 0;")
             main_layout.addWidget(err)
 
+        # ── 声明逐条核查 ─────────────────────────────────────────────────────────
+        claims: list = self._result.get("claim_verification", [])
+        if claims:
+            _VERDICT_COLOR = {
+                "✓": "#a6e3a1",   # 绿：属实
+                "✗": "#f38ba8",   # 红：伪造
+                "?": "#f9e2af",   # 黄：无法核实
+            }
+            claim_frame = QFrame()
+            claim_frame.setStyleSheet(
+                "QFrame { background: rgba(69,71,90,80); border-radius: 8px; }"
+            )
+            claim_layout = QVBoxLayout(claim_frame)
+            claim_layout.setContentsMargins(12, 8, 12, 8)
+            claim_layout.setSpacing(6)
+
+            title_lbl = QLabel("🔍 声明核查")
+            title_lbl.setStyleSheet("color: #89b4fa; font-size: 12px; font-weight: bold;")
+            claim_layout.addWidget(title_lbl)
+
+            for c in claims:
+                claim_text = c.get("claim", "")
+                verdict = c.get("verdict", "?")
+                note = c.get("note", "")
+                # 取 verdict 首字符匹配颜色
+                color = _VERDICT_COLOR.get(verdict[0] if verdict else "?", "#f9e2af")
+                row = QHBoxLayout()
+                row.setSpacing(6)
+                v_lbl = QLabel(verdict)
+                v_lbl.setFixedWidth(80)
+                v_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold;")
+                row.addWidget(v_lbl)
+                text_col = QVBoxLayout()
+                text_col.setSpacing(1)
+                c_lbl = QLabel(claim_text)
+                c_lbl.setWordWrap(True)
+                c_lbl.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+                text_col.addWidget(c_lbl)
+                if note:
+                    n_lbl = QLabel(note)
+                    n_lbl.setWordWrap(True)
+                    n_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
+                    text_col.addWidget(n_lbl)
+                row.addLayout(text_col)
+                claim_layout.addLayout(row)
+
+            main_layout.addWidget(claim_frame)
+
         # ── 折叠：多维评分雷达 ─────────────────────────────────────────────────
         if any(radar.values()):
             radar_sec = CollapsibleSection("多维评分雷达")
@@ -341,6 +397,7 @@ class ResultWindow(QWidget):
         if any(report.values()):
             inv_sec = CollapsibleSection("侦查报告")
             _REPORT_LABELS = [
+                ("source_origin", "来源识别", "#89dceb"),
                 ("time_check",    "时间核查", "#f9e2af"),
                 ("entity_check",  "实体核查", "#f9e2af"),
                 ("physics_check", "常识核查", "#f9e2af"),
