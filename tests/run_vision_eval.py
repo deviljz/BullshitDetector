@@ -48,6 +48,12 @@ EXPECTATIONS: dict[str, dict] = {
         "expected_bs_min": 80,
         "reason": "新规：官方数据类截图若搜索无法核实原始报道，判定为高仿数据篡改屎",
     },
+    "fake_rt_iran_hormuz_rmb.jpeg": {
+        "label": "RT伊朗霍尔木兹海峡人民币结算（夸大失实，RT将去美元化意向渲染成强制通行条件）",
+        "expected_fake": True,
+        "expected_bs_min": 80,
+        "reason": "RT将伊朗石油去美元化意向夸大为'以人民币结算为条件才允许油轮通过霍尔木兹海峡'，属半真半假夸大失实",
+    },
     "real_weibo_rmrb_iraq_engagement.jpg": {
         "label": "人民日报订婚报道（真实社交媒体截图）",
         "expected_fake": False,

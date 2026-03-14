@@ -77,7 +77,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     model=self._model,
                     messages=messages,
                     tools=TOOLS,
-                    max_tokens=2048,
+                    max_tokens=4096,
                 )
                 choice = response.choices[0]
 
@@ -129,7 +129,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 response = self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
-                    max_tokens=2048,
+                    max_tokens=4096,
                     response_format={"type": "json_object"},
                 )
                 content = response.choices[0].message.content
