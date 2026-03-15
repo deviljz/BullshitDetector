@@ -73,11 +73,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             ]
 
             choice = None
-            for _ in range(MAX_TOOL_ROUNDS):
+            for round_idx in range(MAX_TOOL_ROUNDS):
+                # 第一轮强制调用工具（保证至少搜索一次），后续轮次模型自主决定
+                tool_choice = "required" if round_idx == 0 else "auto"
                 response = self._client.chat.completions.create(
                     model=self._model,
                     messages=messages,
                     tools=TOOLS,
+                    tool_choice=tool_choice,
                     max_tokens=4096,
                 )
                 choice = response.choices[0]
