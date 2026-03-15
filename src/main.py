@@ -7,7 +7,8 @@ from PyQt6.QtCore import QObject, pyqtSignal, Qt
 import keyboard
 
 from config import SCREENSHOT_HOTKEY
-from config.manager import load as load_config, get_active_provider_cfg
+from config.manager import load as load_config, save as save_config, get_active_provider_cfg
+from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot
 from ui.result_window import ResultWindow
@@ -52,14 +53,40 @@ class BullshitDetectorApp:
         self._tray.setIcon(self._make_tray_icon())
         self._tray.setToolTip("BullshitDetector")
         menu = QMenu()
+
         capture_action = QAction("截图分析", menu)
         capture_action.triggered.connect(self._start_capture)
         menu.addAction(capture_action)
+
+        menu.addSeparator()
+
+        # 回复风格子菜单
+        tone_menu = QMenu("回复风格", menu)
+        self._tone_actions: dict[str, QAction] = {}
+        current_tone = load_config().get("response_tone", "toxic")
+        for tone_key, tone_label in TONE_LABELS.items():
+            action = QAction(tone_label, tone_menu)
+            action.setCheckable(True)
+            action.setChecked(tone_key == current_tone)
+            action.triggered.connect(lambda checked, k=tone_key: self._set_tone(k))
+            tone_menu.addAction(action)
+            self._tone_actions[tone_key] = action
+        menu.addMenu(tone_menu)
+
+        menu.addSeparator()
+
         quit_action = QAction("退出", menu)
         quit_action.triggered.connect(self.app.quit)
         menu.addAction(quit_action)
         self._tray.setContextMenu(menu)
         self._tray.show()
+
+    def _set_tone(self, tone_key: str):
+        cfg = load_config()
+        cfg["response_tone"] = tone_key
+        save_config(cfg)
+        for k, action in self._tone_actions.items():
+            action.setChecked(k == tone_key)
 
     def _start_capture(self):
         self._overlay = ScreenshotOverlay(self._on_screenshot_taken)

@@ -11,7 +11,7 @@ import traceback
 from openai import OpenAI
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import SYSTEM_PROMPT
+from ai.prompts import get_system_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, execute_tool
 
@@ -44,7 +44,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         )
     """
 
-    def __init__(self, api_key: str, base_url: str | None = None, model: str = "gemini-2.0-flash"):
+    def __init__(self, api_key: str, base_url: str | None = None, model: str = "gemini-2.0-flash", tone: str = "toxic"):
         if not api_key:
             raise ValueError("api_key 不能为空，请在 config.json 或环境变量中配置")
         kwargs: dict = {"api_key": api_key}
@@ -52,13 +52,14 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             kwargs["base_url"] = base_url
         self._client = OpenAI(**kwargs)
         self._model = model
+        self._tone = tone
 
     def analyze(self, image_base64: str) -> dict:
         """ReAct 循环：思考 → 工具调用 → 综合输出 JSON"""
         try:
             search_log: list[dict] = []
             messages: list[dict] = [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": get_system_prompt(self._tone)},
                 {
                     "role": "user",
                     "content": [

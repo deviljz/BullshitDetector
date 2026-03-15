@@ -310,7 +310,7 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         main_layout.addWidget(sep)
 
-        # ── 毒舌锐评 ─────────────────────────────────────────────────────────────
+        # ── 锐评 ─────────────────────────────────────────────────────────────────
         if toxic:
             toxic_label = QLabel(toxic)
             toxic_label.setWordWrap(True)
@@ -502,7 +502,7 @@ class ResultWindow(QWidget):
         if verdict:
             lines.append(f"判决：{verdict}")
         if toxic:
-            lines.append(f"\n锐评：{toxic}")
+            lines.append(f"\n评语：{toxic}")
         if summary:
             lines.append(f"\n总结：{summary}")
         if flaws:

@@ -32,6 +32,7 @@ def get_provider(config: dict) -> BaseLLMProvider:
     """
     active = config.get("active_provider", "openai_compatible")
     provider_cfg = config.get("providers", {}).get(active, {})
+    tone = config.get("response_tone", "toxic")
 
     cls = _REGISTRY.get(active)
     if cls is None:
@@ -44,6 +45,7 @@ def get_provider(config: dict) -> BaseLLMProvider:
         api_key=provider_cfg.get("api_key", ""),
         base_url=provider_cfg.get("base_url") or None,
         model=provider_cfg.get("model", "gemini-2.0-flash"),
+        tone=tone,
     )
 
 
