@@ -393,8 +393,9 @@ class ResultWindow(QWidget):
                 radar_sec.add_line(f"{label}  [{bar}]  {val}/5", color)
             main_layout.addWidget(radar_sec)
 
-        # ── 折叠：侦查报告 ────────────────────────────────────────────────────────
-        if any(report.values()):
+        # ── 折叠：侦查报告 + 搜索过程 ─────────────────────────────────────────────
+        search_log: list = self._result.get("_search_log", [])
+        if any(report.values()) or search_log:
             inv_sec = CollapsibleSection("侦查报告")
             _REPORT_LABELS = [
                 ("source_origin", "来源识别", "#89dceb"),
@@ -406,6 +407,17 @@ class ResultWindow(QWidget):
                 val = report.get(key, "")
                 if val and val != "未核查":
                     inv_sec.add_line(f"[{label}] {val}", color)
+            if search_log:
+                inv_sec.add_line("── 搜索过程 ──", "#45475a")
+                for entry in search_log:
+                    query = entry.get("query", "")
+                    preview = entry.get("result_preview", "").strip()
+                    # 截断预览到 120 字符
+                    if len(preview) > 120:
+                        preview = preview[:120] + "…"
+                    inv_sec.add_line(f"🔍 {query}", "#89b4fa")
+                    if preview:
+                        inv_sec.add_line(f"    → {preview}", "#585b70")
             main_layout.addWidget(inv_sec)
 
         # ── 折叠：破绽列表 ────────────────────────────────────────────────────────
