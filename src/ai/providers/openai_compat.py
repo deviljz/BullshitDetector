@@ -11,7 +11,7 @@ import traceback
 from openai import OpenAI
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt
+from ai.prompts import get_system_prompt, get_article_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, execute_tool
 
@@ -122,6 +122,94 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
             if needs_retry:
                 # 确保最后的 assistant 消息在历史中
+                last = messages[-1]
+                if isinstance(last, dict) and last.get("role") != "assistant":
+                    if choice and choice.message and choice.message.content:
+                        messages.append(choice.message)
+                messages.append({
+                    "role": "user",
+                    "content": "请根据以上所有信息，严格按照 JSON 格式输出最终分析结果。",
+                })
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    max_tokens=4096,
+                    response_format={"type": "json_object"},
+                )
+                content = response.choices[0].message.content
+
+            result = parse_json(content)
+            result = normalize_result(result)
+            result["_search_log"] = search_log
+            return result
+
+        except json.JSONDecodeError as e:
+            return _error_result(f"JSONDecodeError: {e}")
+        except Exception as e:
+            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+    def analyze_article(self, text: str) -> dict:
+        """文章鉴定：纯文字输入，针对数据来源/夸大/遗漏/意图进行分析"""
+        try:
+            search_log: list[dict] = []
+            messages: list[dict] = [
+                {"role": "system", "content": get_article_prompt(self._tone)},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"},
+                    ],
+                },
+            ]
+
+            choice = None
+            for round_idx in range(MAX_TOOL_ROUNDS):
+                tool_choice = "required" if round_idx == 0 else "auto"
+                response = self._client.chat.completions.create(
+                    model=self._model,
+                    messages=messages,
+                    tools=TOOLS,
+                    tool_choice=tool_choice,
+                    max_tokens=4096,
+                )
+                choice = response.choices[0]
+
+                if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
+                    break
+
+                assistant_msg = choice.message
+                messages.append(assistant_msg)
+
+                for tool_call in assistant_msg.tool_calls:
+                    func_name = tool_call.function.name
+                    func_args = json.loads(tool_call.function.arguments)
+                    print(f"  🔍 [{self._model}] 调用工具: {func_name}({func_args})")
+                    tool_result = execute_tool(func_name, func_args)
+                    search_log.append({
+                        "tool": func_name,
+                        "query": func_args.get("query", ""),
+                        "result_preview": tool_result[:200],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "content": tool_result,
+                    })
+
+            content = choice.message.content if choice and choice.message else None
+            needs_retry = (
+                content is None
+                or (choice.finish_reason == "tool_calls")
+                or bool(choice.message.tool_calls)
+            )
+            if not needs_retry:
+                try:
+                    parse_json(content)
+                except (json.JSONDecodeError, ValueError):
+                    needs_retry = True
+
+            if needs_retry:
                 last = messages[-1]
                 if isinstance(last, dict) and last.get("role") != "assistant":
                     if choice and choice.message and choice.message.content:

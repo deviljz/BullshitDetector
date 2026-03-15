@@ -7,6 +7,7 @@ analyzer.py —— 对外唯一入口，保持接口签名不变。
 公开接口：
   analyze_screenshot(image_base64)  — 来自截图遮罩的 base64 流（GUI 调用）
   analyze_image(image_path)         — 来自本地文件路径（测试 / 批处理调用）
+  analyze_text(text)                — 文章/声明文字鉴定（文字/链接分析链路）
 """
 
 import base64
@@ -28,6 +29,16 @@ def analyze_screenshot(image_base64: str) -> dict:
         image_base64: PNG 图片的 base64 字符串（不含 data:image 前缀）
     """
     return _load_provider().analyze(image_base64)
+
+
+def analyze_text(text: str) -> dict:
+    """
+    分析文章/声明文字的可信度（文字/链接分析链路）。
+
+    Args:
+        text: 文章正文或声明内容（URL 已由调用方转换为正文）
+    """
+    return _load_provider().analyze_article(text)
 
 
 def analyze_image(image_path: str) -> dict:

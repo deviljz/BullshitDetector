@@ -10,7 +10,8 @@ from config import SCREENSHOT_HOTKEY
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
-from ai.analyzer import analyze_screenshot
+from ai.analyzer import analyze_screenshot, analyze_text
+from ui.text_input_dialog import TextInputDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
 
@@ -58,6 +59,10 @@ class BullshitDetectorApp:
         capture_action.triggered.connect(self._start_capture)
         menu.addAction(capture_action)
 
+        text_action = QAction("文字/链接分析", menu)
+        text_action.triggered.connect(self._start_text_input)
+        menu.addAction(text_action)
+
         menu.addSeparator()
 
         # 回复风格子菜单
@@ -102,6 +107,18 @@ class BullshitDetectorApp:
     def _run_analysis(self, image_base64: str):
         result = analyze_screenshot(image_base64)
         self.signals.show_result.emit(result, self._capture_position)
+
+    def _start_text_input(self):
+        dlg = TextInputDialog()
+        if dlg.exec():
+            text = dlg.get_content()
+            self._loading = LoadingOverlay()
+            self._loading.show()
+            threading.Thread(target=self._run_article_analysis, args=(text,), daemon=True).start()
+
+    def _run_article_analysis(self, text: str):
+        result = analyze_text(text)
+        self.signals.show_result.emit(result, None)
 
     def _show_result(self, result: dict, position):
         if self._loading:
