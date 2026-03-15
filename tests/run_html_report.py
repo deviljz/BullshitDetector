@@ -83,7 +83,13 @@ def build_gauge_svg(value: Optional[int]) -> str:
 
 
 def evaluate_result(result: dict, exp: Optional[dict]) -> str:
-    """根据分析结果和预期，返回 'pass' / 'fail' / 'noexp'"""
+    """
+    返回状态：
+      'pass'  — 方向正确且 BS >= exp_bs_min
+      'warn'  — 方向正确但 BS < exp_bs_min（偏差过大）
+      'fail'  — 方向错误
+      'noexp' — 无预期配置
+    """
     if exp is None:
         return "noexp"
     bs = result.get("header", {}).get("bullshit_index")
@@ -95,9 +101,7 @@ def evaluate_result(result: dict, exp: Optional[dict]) -> str:
     if predicted_fake != exp_fake:
         return "fail"
     if exp_fake and bs < exp_bs_min:
-        return "fail"
-    if not exp_fake and bs >= 56:
-        return "fail"
+        return "warn"
     return "pass"
 
 
@@ -119,34 +123,36 @@ HTML_HEADER = """<!DOCTYPE html>
 <title>BullshitDetector 测试报告</title>
 <style>
 :root {
-  --bg: #0f0f1a;
-  --card: #1a1a2e;
-  --border: #2a2a45;
-  --text: #cdd6f4;
-  --muted: #6c7086;
-  --pass: #a6e3a1;
-  --fail: #f38ba8;
-  --noexp: #89b4fa;
-  --warn: #f9e2af;
+  --bg: #0f0f1a; --card: #1a1a2e; --border: #2a2a45;
+  --text: #cdd6f4; --muted: #6c7086;
+  --pass: #a6e3a1; --fail: #f38ba8; --warn: #f9e2af; --noexp: #89b4fa;
+  --purple: #cba6f7;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { background: var(--bg); color: var(--text); font-family: "Segoe UI", "PingFang SC", sans-serif; padding: 20px; }
+body { background: var(--bg); color: var(--text); font-family: "Segoe UI","PingFang SC",sans-serif; padding: 20px; }
 h1 { font-size: 1.6rem; margin-bottom: 4px; }
 .meta { color: var(--muted); font-size: 0.85rem; margin-bottom: 16px; }
-.stats-bar { display: flex; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
+.stats-bar { display: flex; gap: 14px; margin-bottom: 18px; flex-wrap: wrap; }
 .stat { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 10px 18px; }
 .stat-num { font-size: 1.5rem; font-weight: bold; }
 .stat-label { font-size: 0.75rem; color: var(--muted); }
-.filters { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
-.filter-btn { padding: 6px 14px; border-radius: 20px; border: 1px solid var(--border);
-  background: var(--card); color: var(--text); cursor: pointer; font-size: 0.85rem; transition: all .2s; }
-.filter-btn.active, .filter-btn:hover { background: #313244; border-color: #585b70; }
+/* ── filter UI ─────────────────────────────────────────────── */
+.filter-group { margin-bottom: 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.filter-group-label { font-size: 0.72rem; color: var(--muted); margin-right: 2px; white-space: nowrap; }
+.filter-btn { padding: 5px 13px; border-radius: 20px; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); cursor: pointer; font-size: 0.83rem; transition: all .15s; }
+.filter-btn:hover { background: #2a2a3e; border-color: #585b70; }
+.filter-btn.active { border-color: var(--purple); color: var(--purple); background: #1e1a2e; }
+.filter-sep { width: 1px; height: 24px; background: var(--border); margin: 0 4px; }
+.results-count { font-size: 0.78rem; color: var(--muted); margin-bottom: 14px; }
+/* ── grid / cards ──────────────────────────────────────────── */
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 20px; }
-.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; overflow: hidden;
-  display: flex; flex-direction: column; transition: box-shadow .2s; }
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; display: flex; flex-direction: column; transition: box-shadow .2s; }
 .card:hover { box-shadow: 0 4px 20px rgba(0,0,0,.5); }
-.card.pass { border-left: 4px solid var(--pass); }
-.card.fail { border-left: 4px solid var(--fail); }
+.card.pass  { border-left: 4px solid var(--pass); }
+.card.fail  { border-left: 4px solid var(--fail); }
+.card.warn  { border-left: 4px solid var(--warn); }
 .card.noexp { border-left: 4px solid var(--noexp); }
 .card-img { width: 100%; max-height: 240px; object-fit: contain; background: #0a0a14;
   cursor: pointer; transition: max-height .3s; }
@@ -158,12 +164,14 @@ h1 { font-size: 1.6rem; margin-bottom: 4px; }
 .filename { font-size: 0.75rem; color: var(--muted); word-break: break-all; }
 .label { font-size: 0.92rem; font-weight: 600; margin: 4px 0; line-height: 1.35; }
 .badge { display: inline-block; padding: 2px 10px; border-radius: 10px; font-size: 0.75rem; font-weight: bold; }
-.badge.pass { background: #1e3a1e; color: var(--pass); }
-.badge.fail { background: #3a1e1e; color: var(--fail); }
+.badge.pass  { background: #1e3a1e; color: var(--pass); }
+.badge.fail  { background: #3a1e1e; color: var(--fail); }
+.badge.warn  { background: #3a2e00; color: var(--warn); }
 .badge.noexp { background: #1e2a3a; color: var(--noexp); }
-.verdict-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
-.verdict { font-size: 0.85rem; color: var(--warn); flex: 1; }
-.time-label { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+.exp-tag { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.72rem; }
+.exp-tag.fake { background: #2a1a1a; color: #f38ba8; }
+.exp-tag.real { background: #1a2a1a; color: #a6e3a1; }
+.exp-tag.noexp { background: #1a1e2a; color: #89b4fa; }
 .section { background: #131320; border-radius: 8px; padding: 10px 12px; font-size: 0.82rem; }
 .section-title { color: var(--muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
 .review-text { line-height: 1.5; color: var(--text); }
@@ -179,7 +187,7 @@ h1 { font-size: 1.6rem; margin-bottom: 4px; }
 .radar-item { background: #0d0d1a; border-radius: 6px; padding: 5px 10px; flex: 1; min-width: 80px; }
 .radar-key { font-size: 0.68rem; color: var(--muted); }
 .radar-bar { height: 4px; background: #2a2a3a; border-radius: 2px; margin-top: 4px; }
-.radar-fill { height: 100%; border-radius: 2px; background: #cba6f7; }
+.radar-fill { height: 100%; border-radius: 2px; background: var(--purple); }
 .error-box { background: #2a0a0a; border-radius: 8px; padding: 10px 12px; }
 .error-text { color: var(--fail); font-size: 0.78rem; font-family: monospace; white-space: pre-wrap; word-break: break-all; }
 .collapsed { display: none; }
@@ -194,23 +202,48 @@ h1 { font-size: 1.6rem; margin-bottom: 4px; }
 
 HTML_FOOTER = """
 <script>
-function filterCards(type) {
+// 当前激活的过滤条件
+let activeStatus = 'all';   // all | pass | fail | warn | noexp
+let activeExpType = 'all';  // all | fake | real | noexp
+
+function applyFilters() {
+  let visible = 0;
   document.querySelectorAll('.card').forEach(c => {
-    c.style.display = (type === 'all' || c.dataset.status === type) ? '' : 'none';
+    const statusOk  = activeStatus  === 'all' || c.dataset.status  === activeStatus;
+    const expTypeOk = activeExpType === 'all' || c.dataset.expType === activeExpType;
+    const show = statusOk && expTypeOk;
+    c.style.display = show ? '' : 'none';
+    if (show) visible++;
   });
-  document.querySelectorAll('.filter-btn').forEach(b => {
-    b.classList.toggle('active', b.dataset.filter === type);
+  document.getElementById('results-count').textContent = `当前显示 ${visible} 条`;
+}
+
+function setStatusFilter(val) {
+  activeStatus = val;
+  document.querySelectorAll('[data-filter-status]').forEach(b => {
+    b.classList.toggle('active', b.dataset.filterStatus === val);
   });
+  applyFilters();
 }
-function toggleImg(img) {
-  img.classList.toggle('expanded');
+
+function setExpTypeFilter(val) {
+  activeExpType = val;
+  document.querySelectorAll('[data-filter-exptype]').forEach(b => {
+    b.classList.toggle('active', b.dataset.filterExptype === val);
+  });
+  applyFilters();
 }
+
+function toggleImg(img) { img.classList.toggle('expanded'); }
 function toggleSection(btn) {
   const sec = btn.nextElementSibling;
   sec.classList.toggle('collapsed');
   btn.textContent = sec.classList.contains('collapsed') ? '▶ 展开' : '▼ 收起';
 }
-document.querySelector('[data-filter="all"]').click();
+
+// 初始状态
+setStatusFilter('all');
+setExpTypeFilter('all');
 </script>
 </body></html>
 """
@@ -230,8 +263,19 @@ def build_card(filename: str, image_path: pathlib.Path, result: dict,
     error = result.get("error", "")
     one_line = result.get("one_line_summary", "")
 
-    badge_text = {"pass": "✅ 通过", "fail": "❌ 失败", "noexp": "⚪ 无预期"}[status]
+    badge_text = {"pass": "✅ 通过", "fail": "❌ 失败", "warn": "⚠️ 偏差", "noexp": "⚪ 无预期"}[status]
     label = (exp or {}).get("label", filename)
+
+    # exp-type 标签
+    if exp is None:
+        exp_type = "noexp"
+        exp_tag_html = '<span class="exp-tag noexp">无预期</span>'
+    elif exp.get("expected_fake"):
+        exp_type = "fake"
+        exp_tag_html = '<span class="exp-tag fake">预期假</span>'
+    else:
+        exp_type = "real"
+        exp_tag_html = '<span class="exp-tag real">预期真</span>'
 
     # 图片 base64
     img_src = img_to_base64(image_path) if image_path.exists() else ""
@@ -331,7 +375,7 @@ def build_card(filename: str, image_path: pathlib.Path, result: dict,
         error_html = f'<div class="error-box"><div class="section-title" style="color:var(--fail)">错误</div><div class="error-text">{short}</div></div>'
 
     return f"""
-<div class="card {status}" data-status="{status}">
+<div class="card {status}" data-status="{status}" data-exp-type="{exp_type}">
   {img_html}
   <div class="card-body">
     <div class="card-top">
@@ -341,6 +385,7 @@ def build_card(filename: str, image_path: pathlib.Path, result: dict,
         <div class="label">{label}</div>
         <div style="margin-top:4px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
           <span class="badge {status}">{badge_text}</span>
+          {exp_tag_html}
           <span style="font-size:0.78rem;color:#cba6f7">{risk}</span>
           <span style="font-size:0.78rem;color:var(--muted)">{truth_label}</span>
         </div>
@@ -388,32 +433,48 @@ def generate_report(items: list[tuple[str, pathlib.Path, Optional[dict]]]) -> pa
         results.append((filename, image_path, result, exp, elapsed, status))
 
     # 统计
-    n_pass = sum(1 for *_, s in results if s == "pass")
-    n_fail = sum(1 for *_, s in results if s == "fail")
+    n_pass  = sum(1 for *_, s in results if s == "pass")
+    n_fail  = sum(1 for *_, s in results if s == "fail")
+    n_warn  = sum(1 for *_, s in results if s == "warn")
     n_noexp = sum(1 for *_, s in results if s == "noexp")
     n_total = len(results)
-    n_expected = n_pass + n_fail
+    n_expected = n_pass + n_fail + n_warn
+    # exp-type counts
+    n_fake  = sum(1 for _, _, _, e, _, _ in results if e is not None and e.get("expected_fake"))
+    n_real  = sum(1 for _, _, _, e, _, _ in results if e is not None and not e.get("expected_fake"))
 
-    # 排序：fail 优先 → pass → noexp
-    order = {"fail": 0, "pass": 1, "noexp": 2}
+    # 排序：fail → warn → pass → noexp
+    order = {"fail": 0, "warn": 1, "pass": 2, "noexp": 3}
     results.sort(key=lambda r: order[r[-1]])
 
     # 构建 HTML
+    pass_rate_color = "var(--pass)" if n_fail == 0 else "var(--fail)"
     stats_html = f"""
 <div class="meta">生成时间：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | 共 {n_total} 张图片</div>
 <div class="stats-bar">
   <div class="stat"><div class="stat-num" style="color:var(--text)">{n_total}</div><div class="stat-label">总计</div></div>
   <div class="stat"><div class="stat-num" style="color:var(--pass)">{n_pass}</div><div class="stat-label">通过</div></div>
   <div class="stat"><div class="stat-num" style="color:var(--fail)">{n_fail}</div><div class="stat-label">失败</div></div>
+  <div class="stat"><div class="stat-num" style="color:var(--warn)">{n_warn}</div><div class="stat-label">偏差过大</div></div>
   <div class="stat"><div class="stat-num" style="color:var(--noexp)">{n_noexp}</div><div class="stat-label">无预期</div></div>
-  <div class="stat"><div class="stat-num" style="color:{'var(--pass)' if n_fail == 0 else 'var(--fail)'}">{n_pass}/{n_expected}</div><div class="stat-label">通过率</div></div>
+  <div class="stat"><div class="stat-num" style="color:{pass_rate_color}">{n_pass}/{n_expected}</div><div class="stat-label">通过率</div></div>
 </div>
-<div class="filters">
-  <button class="filter-btn" data-filter="all" onclick="filterCards('all')">全部 ({n_total})</button>
-  <button class="filter-btn" data-filter="fail" onclick="filterCards('fail')">❌ 失败 ({n_fail})</button>
-  <button class="filter-btn" data-filter="pass" onclick="filterCards('pass')">✅ 通过 ({n_pass})</button>
-  <button class="filter-btn" data-filter="noexp" onclick="filterCards('noexp')">⚪ 无预期 ({n_noexp})</button>
+<div class="filter-group">
+  <span class="filter-group-label">状态：</span>
+  <button class="filter-btn" data-filter-status="all"   onclick="setStatusFilter('all')"  >全部 ({n_total})</button>
+  <button class="filter-btn" data-filter-status="fail"  onclick="setStatusFilter('fail')" >❌ 失败 ({n_fail})</button>
+  <button class="filter-btn" data-filter-status="warn"  onclick="setStatusFilter('warn')" >⚠️ 偏差 ({n_warn})</button>
+  <button class="filter-btn" data-filter-status="pass"  onclick="setStatusFilter('pass')" >✅ 通过 ({n_pass})</button>
+  <button class="filter-btn" data-filter-status="noexp" onclick="setStatusFilter('noexp')">⚪ 无预期 ({n_noexp})</button>
 </div>
+<div class="filter-group">
+  <span class="filter-group-label">预期类型：</span>
+  <button class="filter-btn" data-filter-exptype="all"   onclick="setExpTypeFilter('all')"  >全部</button>
+  <button class="filter-btn" data-filter-exptype="fake"  onclick="setExpTypeFilter('fake')" >❌ 预期假 ({n_fake})</button>
+  <button class="filter-btn" data-filter-exptype="real"  onclick="setExpTypeFilter('real')" >✅ 预期真 ({n_real})</button>
+  <button class="filter-btn" data-filter-exptype="noexp" onclick="setExpTypeFilter('noexp')">⚪ 无预期 ({n_noexp})</button>
+</div>
+<div class="results-count" id="results-count">当前显示 {n_total} 条</div>
 <div class="grid">"""
 
     cards_html = "".join(
@@ -425,7 +486,7 @@ def generate_report(items: list[tuple[str, pathlib.Path, Optional[dict]]]) -> pa
 
     report_path.write_text(html, encoding="utf-8")
     print(f"\n报告已保存：{report_path}")
-    print(f"结果：{n_pass} 通过 / {n_fail} 失败 / {n_noexp} 无预期 （共 {n_total} 张）")
+    print(f"结果：{n_pass} 通过 / {n_fail} 失败 / {n_warn} 偏差 / {n_noexp} 无预期 （共 {n_total} 张）")
     return report_path
 
 
@@ -445,15 +506,18 @@ def main():
             print("没有有效的图片路径，退出。")
             sys.exit(1)
     else:
-        # 默认：测试所有 EXPECTATIONS fixtures
+        # 默认：扫描 fixtures/ 下所有图片，有预期配置的附加 exp，无则 noexp
+        all_images = sorted(
+            p for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp")
+            for p in FIXTURES_DIR.glob(ext)
+        )
         items = []
-        for filename, exp in EXPECTATIONS.items():
-            image_path = FIXTURES_DIR / filename
-            if not image_path.exists():
-                print(f"警告：找不到 fixture {filename}，跳过")
-                continue
+        for image_path in all_images:
+            filename = image_path.name
+            exp = EXPECTATIONS.get(filename, None)
             items.append((filename, image_path, exp))
-        print(f"将测试 {len(items)} 张 fixture 图片\n")
+        n_exp = sum(1 for _, _, e in items if e is not None)
+        print(f"将测试 {len(items)} 张图片（{n_exp} 张有预期配置，{len(items)-n_exp} 张无预期）\n")
 
     report_path = generate_report(items)
 
