@@ -61,6 +61,11 @@ class ScreenshotOverlay(QWidget):
                 )
 
     def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.RightButton:
+            if self._on_cancel:
+                self._on_cancel()
+            self.close()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             self._origin = event.pos()
             self._selection = QRect(self._origin, self._origin)
