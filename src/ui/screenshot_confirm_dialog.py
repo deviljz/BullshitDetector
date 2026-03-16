@@ -24,7 +24,8 @@ class ScreenshotConfirmDialog(QDialog):
             | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
-        self.winId()  # 提前创建 HWND，避免 DWM 白色闪烁帧
+        self.winId()
+        self.setWindowOpacity(0.0)
         self.setStyleSheet("""
             QDialog {
                 background: #1a1a2e;
@@ -35,6 +36,10 @@ class ScreenshotConfirmDialog(QDialog):
         self._drag_pos = QPoint()
         self._build_ui(image)
         self.adjustSize()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setWindowOpacity(1.0)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:

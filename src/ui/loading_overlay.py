@@ -27,7 +27,8 @@ class LoadingOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowTitle("")
         self.setFixedSize(self._W, self._H)
-        self.winId()  # 提前创建 HWND，避免 DWM 白色闪烁帧
+        self.winId()
+        self.setWindowOpacity(0.0)
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
@@ -57,6 +58,10 @@ class LoadingOverlay(QWidget):
             "}"
         )
 
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setWindowOpacity(1.0)
 
     def _setup_timer(self):
         self._timer = QTimer(self)

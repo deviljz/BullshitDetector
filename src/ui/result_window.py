@@ -10,7 +10,6 @@ from PyQt6.QtWidgets import (
     QSizeGrip,
     QFrame,
     QSizePolicy,
-    QGraphicsDropShadowEffect,
 )
 from PyQt6.QtCore import Qt, QPoint, QRect, QSize
 from PyQt6.QtGui import (
@@ -215,12 +214,7 @@ class ResultWindow(QWidget):
             self.resize(w, h)
         self.setMinimumWidth(480)
         self.setMinimumHeight(360)
-
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(40)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 180))
-        self.setGraphicsEffect(shadow)
+        self.setWindowOpacity(0.0)  # show() 前不可见，showEvent 再设为 1
 
     # ── UI 构建 ────────────────────────────────────────────────────────────────
     def _init_ui(self):
@@ -248,7 +242,7 @@ class ResultWindow(QWidget):
             "#card {"
             "  background: rgba(24, 24, 37, 242);"
             "  border-radius: 18px;"
-            "  border: 1px solid #313244;"
+            "  border: 1px solid #45475a;"
             "}"
         )
         outer.addWidget(card)
@@ -519,6 +513,7 @@ class ResultWindow(QWidget):
     # ── 点击外部关闭 ──────────────────────────────────────────────────────────
     def showEvent(self, event):
         super().showEvent(event)
+        self.setWindowOpacity(1.0)  # 首帧渲染完成后才显示，消除白色闪烁
         self.activateWindow()
         self.setFocus()
 
