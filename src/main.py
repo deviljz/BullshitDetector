@@ -33,6 +33,7 @@ class BullshitDetectorApp:
         self._result_window = None
         self._loading = None
         self._capture_position = None
+        self._busy = False  # 截图/确认/分析任意一个阶段进行中时为 True
         self._setup_tray()
 
     @staticmethod
@@ -95,14 +96,17 @@ class BullshitDetectorApp:
             action.setChecked(k == tone_key)
 
     def _start_capture(self):
+        if self._busy:
+            return
+        self._busy = True
         self._overlay = ScreenshotOverlay(self._on_screenshot_taken)
 
     def _on_screenshot_taken(self, image, position=None):
         dlg = ScreenshotConfirmDialog(image)
         if position:
-            # 对话框出现在截图区域右上角附近
             dlg.move(position[0], max(0, position[1] - 20))
         if not dlg.exec():
+            self._busy = False
             return  # 用户取消，不消耗 token
         self._capture_position = position
         b64 = image_to_base64(image)
@@ -113,6 +117,7 @@ class BullshitDetectorApp:
 
     def _run_analysis(self, image_base64: str):
         result = analyze_screenshot(image_base64)
+        self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
     def _start_text_input(self):
