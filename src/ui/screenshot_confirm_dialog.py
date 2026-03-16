@@ -61,7 +61,7 @@ class ScreenshotConfirmDialog(QDialog):
 
         preview_lbl = QLabel()
         preview_lbl.setPixmap(pixmap)
-        preview_lbl.setFixedSize(w, h)
+        preview_lbl.setFixedSize(self._MAX_W, self._MAX_H)
         preview_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         preview_lbl.setStyleSheet(
             "border: 1px solid #3a3a55; border-radius: 4px; background: #0a0a14;"
