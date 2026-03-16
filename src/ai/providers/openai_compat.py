@@ -7,6 +7,7 @@ OpenAICompatibleProvider —— 覆盖所有兼容 OpenAI 接口的大模型。
 
 import json
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
 
@@ -54,6 +55,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._model = model
         self._tone = tone
 
+    def _exec_tools_parallel(self, tool_calls) -> list[tuple]:
+        """并行执行一轮中所有工具调用，返回有序列表 [(tool_call, func_name, func_args, result), ...]"""
+        def _run(tc):
+            func_name = tc.function.name
+            func_args = json.loads(tc.function.arguments)
+            print(f"  🔍 [{self._model}] 调用工具: {func_name}({func_args})")
+            return tc, func_name, func_args, execute_tool(func_name, func_args)
+
+        with ThreadPoolExecutor(max_workers=len(tool_calls)) as ex:
+            return list(ex.map(_run, tool_calls))
+
     def analyze(self, image_base64: str) -> dict:
         """ReAct 循环：思考 → 工具调用 → 综合输出 JSON"""
         try:
@@ -91,11 +103,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 assistant_msg = choice.message
                 messages.append(assistant_msg)
 
-                for tool_call in assistant_msg.tool_calls:
-                    func_name = tool_call.function.name
-                    func_args = json.loads(tool_call.function.arguments)
-                    print(f"  🔍 [{self._model}] 调用工具: {func_name}({func_args})")
-                    tool_result = execute_tool(func_name, func_args)
+                for tc, func_name, func_args, tool_result in self._exec_tools_parallel(assistant_msg.tool_calls):
                     search_log.append({
                         "tool": func_name,
                         "query": func_args.get("query", ""),
@@ -103,7 +111,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     })
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tc.id,
                         "content": tool_result,
                     })
 
@@ -181,11 +189,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 assistant_msg = choice.message
                 messages.append(assistant_msg)
 
-                for tool_call in assistant_msg.tool_calls:
-                    func_name = tool_call.function.name
-                    func_args = json.loads(tool_call.function.arguments)
-                    print(f"  🔍 [{self._model}] 调用工具: {func_name}({func_args})")
-                    tool_result = execute_tool(func_name, func_args)
+                for tc, func_name, func_args, tool_result in self._exec_tools_parallel(assistant_msg.tool_calls):
                     search_log.append({
                         "tool": func_name,
                         "query": func_args.get("query", ""),
@@ -193,7 +197,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     })
                     messages.append({
                         "role": "tool",
-                        "tool_call_id": tool_call.id,
+                        "tool_call_id": tc.id,
                         "content": tool_result,
                     })
 
