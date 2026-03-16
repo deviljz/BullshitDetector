@@ -18,12 +18,13 @@ class ScreenshotConfirmDialog(QDialog):
 
     def __init__(self, image: Image.Image, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("确认分析？")
+        self.setWindowTitle("")
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Dialog
         )
+        self.winId()  # 提前创建 HWND，避免 DWM 白色闪烁帧
         self.setStyleSheet("""
             QDialog {
                 background: #1a1a2e;

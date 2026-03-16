@@ -477,13 +477,14 @@ class ResultWindow(QWidget):
         cols.addWidget(right_widget, right_stretch)
         main_layout.addLayout(cols)
 
-        # ── 底部：复制按钮 + 缩放手柄 ─────────────────────────────────────────
+        # ── 底部：复制按钮（右下）+ 缩放手柄 ────────────────────────────────
         bottom_row = QHBoxLayout()
+        bottom_row.addStretch()
         copy_btn = QPushButton("复制结果")
         copy_btn.setFixedHeight(32)
         copy_btn.setStyleSheet(
             "QPushButton { background: #313244; color: #89b4fa; "
-            "border-radius: 8px; font-size: 12px; font-weight: bold; }"
+            "border-radius: 8px; font-size: 12px; font-weight: bold; padding: 0 16px; }"
             "QPushButton:hover { background: #45475a; }"
         )
         copy_btn.clicked.connect(self._copy_result)

@@ -20,12 +20,14 @@ class LoadingOverlay(QWidget):
 
     def _setup_window(self):
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setWindowTitle("")
         self.setFixedSize(self._W, self._H)
+        self.winId()  # 提前创建 HWND，避免 DWM 白色闪烁帧
 
     def _setup_ui(self):
         layout = QHBoxLayout(self)
