@@ -210,9 +210,10 @@ class ResultWindow(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            side = min(800, geo.width() - 80, geo.height() - 80)
-            self.resize(side, side)
-        self.setMinimumWidth(360)
+            w = min(1200, geo.width() - 80)
+            h = min(800, geo.height() - 80)
+            self.resize(w, h)
+        self.setMinimumWidth(480)
         self.setMinimumHeight(360)
 
         shadow = QGraphicsDropShadowEffect(self)
@@ -320,7 +321,7 @@ class ResultWindow(QWidget):
             img_layout.setContentsMargins(0, 0, 0, 0)
             img_layout.addWidget(img_lbl)
             img_layout.addStretch()
-            cols.addWidget(img_widget, 30)
+            cols.addWidget(img_widget, 33)
 
         # 中列：核心信息
         left_col = QVBoxLayout()
@@ -471,7 +472,7 @@ class ResultWindow(QWidget):
         right_widget.setStyleSheet("background: transparent;")
         right_widget.setLayout(right_col)
 
-        mid_stretch, right_stretch = (35, 35) if self._image is not None else (45, 55)
+        mid_stretch, right_stretch = (33, 34) if self._image is not None else (45, 55)
         cols.addWidget(left_widget, mid_stretch)
         cols.addWidget(right_widget, right_stretch)
         main_layout.addLayout(cols)
