@@ -1,5 +1,8 @@
 import sys
 import threading
+import logging
+import traceback
+from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
@@ -167,7 +170,32 @@ class BullshitDetectorApp:
         return self.app.exec()
 
 
+def _setup_logging():
+    log_dir = Path(__file__).parent.parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "bullshit.log"
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(log_file, encoding="utf-8"),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+    # 捕获未处理的主线程异常
+    def _excepthook(exc_type, exc_value, exc_tb):
+        logging.critical("未捕获异常", exc_info=(exc_type, exc_value, exc_tb))
+    sys.excepthook = _excepthook
+    # 捕获子线程异常
+    def _thread_excepthook(args):
+        logging.critical("子线程未捕获异常", exc_info=(args.exc_type, args.exc_value, args.exc_traceback))
+    threading.excepthook = _thread_excepthook
+    return log_file
+
+
 def main():
+    log_file = _setup_logging()
+    logging.info("BullshitDetector 启动，日志写入: %s", log_file)
     app = BullshitDetectorApp()
     sys.exit(app.run())
 
