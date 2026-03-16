@@ -3,7 +3,7 @@
 截图完成后弹出，显示预览，用户点击「开始分析」才真正发起分析请求。
 """
 from PIL import Image
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QImage, QPixmap
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame
@@ -31,8 +31,20 @@ class ScreenshotConfirmDialog(QDialog):
                 border-radius: 10px;
             }
         """)
+        self._drag_pos = QPoint()
         self._build_ui(image)
         self.adjustSize()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.MouseButton.LeftButton and not self._drag_pos.isNull():
+            self.move(event.globalPosition().toPoint() - self._drag_pos)
+
+    def mouseReleaseEvent(self, event):
+        self._drag_pos = QPoint()
 
     def _build_ui(self, image: Image.Image):
         layout = QVBoxLayout(self)
