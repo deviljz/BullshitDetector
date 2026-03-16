@@ -9,12 +9,13 @@ from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
 import keyboard
 
-from config import SCREENSHOT_HOTKEY
+from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot, analyze_text
 from ui.text_input_dialog import TextInputDialog
+from ui.image_input_dialog import ImageInputDialog
 from ui.screenshot_confirm_dialog import ScreenshotConfirmDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
@@ -22,6 +23,7 @@ from ui.loading_overlay import LoadingOverlay
 
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
+    trigger_image = pyqtSignal()
     show_result = pyqtSignal(dict, object)  # result_dict, position
 
 
@@ -31,6 +33,7 @@ class BullshitDetectorApp:
         self.app.setQuitOnLastWindowClosed(False)
         self.signals = SignalBridge()
         self.signals.trigger_capture.connect(self._start_capture)
+        self.signals.trigger_image.connect(self._start_image_input)
         self.signals.show_result.connect(self._show_result)
         self._overlay = None
         self._result_window = None
@@ -68,6 +71,10 @@ class BullshitDetectorApp:
         text_action = QAction("文字/链接分析", menu)
         text_action.triggered.connect(self._start_text_input)
         menu.addAction(text_action)
+
+        image_action = QAction(f"图片分析  ({IMAGE_HOTKEY.upper()})", menu)
+        image_action.triggered.connect(self._start_image_input)
+        menu.addAction(image_action)
 
         menu.addSeparator()
 
@@ -128,6 +135,22 @@ class BullshitDetectorApp:
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
+    def _start_image_input(self):
+        dlg = ImageInputDialog()
+        # 居中显示
+        screen = self.app.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            dlg.move(geo.center() - dlg.rect().center())
+        if dlg.exec():
+            image = dlg.get_image()
+            if image:
+                self._capture_image = image
+                b64 = image_to_base64(image)
+                self._loading = LoadingOverlay()
+                self._loading.show()
+                threading.Thread(target=self._run_analysis, args=(b64,), daemon=True).start()
+
     def _start_text_input(self):
         dlg = TextInputDialog()
         if dlg.exec():
@@ -161,6 +184,7 @@ class BullshitDetectorApp:
             return 1
 
         keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
+        keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_image.emit())
         self._tray.showMessage(
             "BullshitDetector",
             f"已启动！按 {SCREENSHOT_HOTKEY} 截图分析",
