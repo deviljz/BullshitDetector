@@ -89,17 +89,26 @@ class ScreenshotOverlay(QWidget):
     @staticmethod
     def _grab_region(rect: QRect) -> Image.Image:
         """rect 为全局逻辑像素坐标。
-        PyQt6 在 Windows DPI-aware 模式下，mss 与 Qt 共用同一套逻辑坐标系，
-        直接传入无需乘以 devicePixelRatio。"""
-        with mss.mss() as sct:
-            monitor = {
-                "top":    rect.y(),
-                "left":   rect.x(),
-                "width":  rect.width(),
-                "height": rect.height(),
-            }
-            screenshot = sct.grab(monitor)
-            return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
+        先抓取整个屏幕，再裁剪选择区域，避免坐标系混淆。
+        grabWindow(0, x, y, w, h) 的 x/y 是相对于该屏幕的局部坐标，
+        而 rect 是全局坐标，必须减去屏幕原点才能正确裁剪。"""
+        from io import BytesIO
+        from PyQt6.QtWidgets import QApplication
+        from PyQt6.QtCore import QBuffer, QIODeviceBase
+
+        app = QApplication.instance()
+        screen = app.screenAt(rect.center()) or app.primaryScreen()
+        # 抓取该屏幕全图，然后用屏幕局部坐标裁剪
+        full_pixmap = screen.grabWindow(0)
+        origin = screen.geometry().topLeft()
+        local_x = rect.x() - origin.x()
+        local_y = rect.y() - origin.y()
+        cropped = full_pixmap.copy(local_x, local_y, rect.width(), rect.height())
+        buf = QBuffer()
+        buf.open(QIODeviceBase.OpenModeFlag.ReadWrite)
+        cropped.save(buf, "PNG")
+        buf.seek(0)
+        return Image.open(BytesIO(bytes(buf.data()))).convert("RGB")
 
 
 def image_to_base64(img: Image.Image) -> str:
