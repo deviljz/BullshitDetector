@@ -202,11 +202,10 @@ class ResultWindow(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            w = max(420, int(geo.width() * 0.22))
-            h = min(int(w * 2), geo.height() - 80)
-            self.resize(w, h)
+            side = min(800, geo.width() - 80, geo.height() - 80)
+            self.resize(side, side)
         self.setMinimumWidth(360)
-        self.setMinimumHeight(300)
+        self.setMinimumHeight(360)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(40)
@@ -389,7 +388,7 @@ class ResultWindow(QWidget):
 
         # ── 右列：多维评分雷达（默认折叠）──────────────────────────────────────
         if any(radar.values()):
-            radar_sec = CollapsibleSection("多维评分雷达", collapsed=True)
+            radar_sec = CollapsibleSection("多维评分雷达", collapsed=False)
             _RADAR_LABELS = {
                 "logic_consistency": ("逻辑自洽", "#89b4fa"),
                 "source_authority":  ("来源权威", "#a6e3a1"),
@@ -404,7 +403,7 @@ class ResultWindow(QWidget):
 
         # ── 右列：侦查报告（默认折叠）──────────────────────────────────────────
         if any(report.get(k, "") for k in ("time_check", "entity_check", "physics_check", "source_origin")):
-            inv_sec = CollapsibleSection("侦查报告", collapsed=True)
+            inv_sec = CollapsibleSection("侦查报告", collapsed=False)
             _REPORT_LABELS = [
                 ("source_origin", "来源识别", "#89dceb"),
                 ("time_check",    "时间核查", "#f9e2af"),
@@ -456,7 +455,7 @@ class ResultWindow(QWidget):
         )
         copy_btn.clicked.connect(self._copy_result)
         bottom_row.addWidget(copy_btn)
-        grip = QSizeGrip(card)
+        grip = QSizeGrip(self)
         grip.setStyleSheet("background: transparent;")
         bottom_row.addWidget(grip, alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
         main_layout.addLayout(bottom_row)
