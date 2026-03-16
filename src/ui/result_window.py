@@ -195,10 +195,15 @@ class ResultWindow(QWidget):
     # ── 窗口属性 ───────────────────────────────────────────────────────────────
     def _init_window(self):
         self.setWindowFlags(
-            Qt.WindowType.FramelessWindowHint
+            Qt.WindowType.Window
+            | Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setWindowTitle("")
+        # 提前创建 HWND，避免 Windows DWM 在透明设置前闪白色原生窗口
+        self.winId()
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
