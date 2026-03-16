@@ -183,8 +183,6 @@ class CollapsibleSection(QWidget):
 class ResultWindow(QWidget):
     """赛博朋克风格无边框结果卡片。"""
 
-    AUTO_CLOSE_MS = 60_000  # 60秒自动关闭
-
     def __init__(self, result: dict, position: tuple | None = None):
         super().__init__()
         self._result = result
@@ -193,7 +191,6 @@ class ResultWindow(QWidget):
         self._init_window()
         self._init_ui()
         QTimer.singleShot(0, self._position_window)
-        self._start_auto_close()
 
     # ── 窗口属性 ───────────────────────────────────────────────────────────────
     def _init_window(self):
@@ -205,9 +202,6 @@ class ResultWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumWidth(560)
         self.setMaximumWidth(720)
-        screen = QApplication.primaryScreen()
-        if screen:
-            self.setMaximumHeight(screen.availableGeometry().height() - 60)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(40)
@@ -479,26 +473,28 @@ class ResultWindow(QWidget):
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _position_window(self):
         self.adjustSize()
+        screen = QApplication.primaryScreen()
+        if not screen:
+            return
+        geo = screen.availableGeometry()
+        max_h = geo.height() - 80
+        if self.height() > max_h:
+            self.resize(self.width(), max_h)
+
         if not self._position:
-            screen = QApplication.primaryScreen()
-            if screen:
-                geo = screen.availableGeometry()
-                self.move(
-                    geo.x() + geo.width() - self.width() - 40,
-                    geo.y() + 60,
-                )
+            self.move(
+                geo.x() + geo.width() - self.width() - 40,
+                geo.y() + 60,
+            )
             return
 
         x, y = self._position
-        screen = QApplication.primaryScreen()
-        if screen:
-            geo = screen.availableGeometry()
-            w, h = self.width(), self.height()
-            x = min(x + 12, geo.x() + geo.width() - w - 8)
-            y = min(y, geo.y() + geo.height() - h - 8)
-            x = max(geo.x() + 8, x)
-            y = max(geo.y() + 8, y)
-            self.move(QPoint(x, y))
+        w, h = self.width(), self.height()
+        x = min(x + 12, geo.x() + geo.width() - w - 8)
+        y = min(y, geo.y() + geo.height() - h - 8)
+        x = max(geo.x() + 8, x)
+        y = max(geo.y() + 8, y)
+        self.move(QPoint(x, y))
 
     # ── 点击外部关闭 ──────────────────────────────────────────────────────────
     def showEvent(self, event):
@@ -517,13 +513,6 @@ class ResultWindow(QWidget):
 
     def mouseReleaseEvent(self, event):
         self._drag_pos = None
-
-    # ── 自动关闭 ──────────────────────────────────────────────────────────────
-    def _start_auto_close(self):
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self.close)
-        self._timer.start(self.AUTO_CLOSE_MS)
 
     # ── 复制 ──────────────────────────────────────────────────────────────────
     def _copy_result(self):
