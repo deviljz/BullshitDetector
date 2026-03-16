@@ -74,9 +74,12 @@ class ScreenshotOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_selecting:
             self._is_selecting = False
             self.close()
-            # _selection 是 widget-local 逻辑像素，转为全局坐标
-            offset = self.geometry().topLeft()
-            rect = self._selection.normalized().translated(offset)
+            # widget-local 坐标 ≠ 全局坐标（多屏时 widget 坐标系可能被缩放）
+            # 用 mapToGlobal() 逐点转换，避免假设 geometry().topLeft() 是正确偏移
+            sel = self._selection.normalized()
+            tl = self.mapToGlobal(sel.topLeft())
+            br = self.mapToGlobal(sel.bottomRight())
+            rect = QRect(tl, br).normalized()
             if rect.width() > 10 and rect.height() > 10:
                 image = self._grab_region(rect)
                 position = (rect.x() + rect.width(), rect.y())
