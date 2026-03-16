@@ -144,7 +144,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             )
             if not needs_retry:
                 try:
-                    parse_json(content)
+                    parsed = parse_json(content)
+                    # 字段完整性检查：核心新 schema 字段缺失时触发 retry
+                    inv = parsed.get("investigation_report", {})
+                    claims = parsed.get("claim_verification")
+                    if not inv.get("content_nature") or claims is None:
+                        needs_retry = True
                 except (json.JSONDecodeError, ValueError):
                     needs_retry = True
 
@@ -156,7 +161,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                         messages.append(choice.message)
                 messages.append({
                     "role": "user",
-                    "content": "请根据以上所有信息，严格按照 JSON 格式输出最终分析结果。",
+                    "content": (
+                        "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
+                        "重要字段提醒（缺任何一个都视为格式错误）：\n"
+                        "1. investigation_report 必须包含 content_nature 字段（内容性质：社交媒体截图/新闻报道/官方公文等）\n"
+                        "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
+                        "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+                    ),
                 })
                 response = self._create_with_retry(
                     model=self._model,
@@ -238,7 +249,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             )
             if not needs_retry:
                 try:
-                    parse_json(content)
+                    parsed = parse_json(content)
+                    inv = parsed.get("investigation_report", {})
+                    claims = parsed.get("claim_verification")
+                    if not inv.get("content_nature") or claims is None:
+                        needs_retry = True
                 except (json.JSONDecodeError, ValueError):
                     needs_retry = True
 
@@ -249,7 +264,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                         messages.append(choice.message)
                 messages.append({
                     "role": "user",
-                    "content": "请根据以上所有信息，严格按照 JSON 格式输出最终分析结果。",
+                    "content": (
+                        "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
+                        "重要字段提醒（缺任何一个都视为格式错误）：\n"
+                        "1. investigation_report 必须包含 content_nature 字段（内容性质：自媒体公众号/科技媒体/官方新闻等）\n"
+                        "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
+                        "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+                    ),
                 })
                 response = self._create_with_retry(
                     model=self._model,

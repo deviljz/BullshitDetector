@@ -190,9 +190,10 @@ def _build_prompt(t: dict) -> str:
 
 在生成最终 JSON 之前，必须完成以下自检：
 1. {t['self_audit_review']}
-2. **claim_verification 检查**：必须逐条列出图中的核心可验证声明（至少1条，复杂内容最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported 来源→官方自述；搜到矛盾证据→伪造；无结果→无法核实），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据。**verdict 补充规则（按声明类型区分）：① 对于"社交媒体上是否发生某事件"，搜索无结果时填"? 无法核实"，不得填"✗ 伪造"；② 对于官方政策/法规/数据类声明，若搜索找不到官方原始记录，可结合铁律一逻辑综合判断是否伪造，不受此限制**
-3. {t['self_audit_summary']}
-4. **bullshit_index 与 risk_level 一致性**：确保两者匹配（见下方 risk_level 映射规则）
+2. **content_nature 检查**：investigation_report.content_nature 必须填写，从"社交媒体截图 / 新闻报道截图 / 官方公文 / 自媒体内容 / 聊天记录 / 其他"中选一个并简短说明，不可留空。
+3. **claim_verification 检查**：必须逐条列出图中的核心可验证声明（至少1条，复杂内容最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported 来源→官方自述；搜到矛盾证据→伪造；无结果→无法核实），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据。**verdict 补充规则（按声明类型区分）：① 对于"社交媒体上是否发生某事件"，搜索无结果时填"? 无法核实"，不得填"✗ 伪造"；② 对于官方政策/法规/数据类声明，若搜索找不到官方原始记录，可结合铁律一逻辑综合判断是否伪造，不受此限制**
+4. {t['self_audit_summary']}
+5. **bullshit_index 与 risk_level 一致性**：确保两者匹配（见下方 risk_level 映射规则）
 
 ---
 

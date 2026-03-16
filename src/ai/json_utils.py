@@ -127,10 +127,13 @@ def normalize_result(result: dict) -> dict:
     radar.setdefault("search_match", 3)
 
     report = result.setdefault("investigation_report", {})
+    report.setdefault("content_nature", "")
     report.setdefault("time_check", "未核查")
     report.setdefault("entity_check", "未核查")
     report.setdefault("physics_check", "未核查")
+    report.setdefault("source_independence_note", "")
 
+    result.setdefault("claim_verification", [])
     result.setdefault("toxic_review", "鉴屎官罢工了")
     result.setdefault("flaw_list", [])
     result.setdefault("one_line_summary", "无法总结")
