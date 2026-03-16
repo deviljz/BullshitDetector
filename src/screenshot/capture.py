@@ -4,7 +4,6 @@ import base64
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRect, QPoint
 from PyQt6.QtGui import QPainter, QColor
-import mss
 from PIL import Image
 
 
@@ -26,12 +25,12 @@ class ScreenshotOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
 
-        # 覆盖所有屏幕组成的虚拟桌面（多屏支持）
+        # 只覆盖光标当前所在的屏幕，避免跨屏虚拟桌面的混合坐标系问题
         from PyQt6.QtWidgets import QApplication
-        virtual = QApplication.instance().screens()[0].geometry()
-        for screen in QApplication.instance().screens()[1:]:
-            virtual = virtual.united(screen.geometry())
-        self.setGeometry(virtual)
+        from PyQt6.QtGui import QCursor
+        app = QApplication.instance()
+        screen = app.screenAt(QCursor.pos()) or app.primaryScreen()
+        self.setGeometry(screen.geometry())
         self.show()
 
     def paintEvent(self, event):
@@ -74,12 +73,10 @@ class ScreenshotOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_selecting:
             self._is_selecting = False
             self.close()
-            # widget-local 坐标 ≠ 全局坐标（多屏时 widget 坐标系可能被缩放）
-            # 用 mapToGlobal() 逐点转换，避免假设 geometry().topLeft() 是正确偏移
-            sel = self._selection.normalized()
-            tl = self.mapToGlobal(sel.topLeft())
-            br = self.mapToGlobal(sel.bottomRight())
-            rect = QRect(tl, br).normalized()
+            # widget 覆盖单块屏幕，widget-local 坐标 = 屏幕本地坐标
+            # geometry().topLeft() 即该屏幕在全局坐标系中的原点，平移即可得全局坐标
+            offset = self.geometry().topLeft()
+            rect = self._selection.normalized().translated(offset)
             if rect.width() > 10 and rect.height() > 10:
                 image = self._grab_region(rect)
                 position = (rect.x() + rect.width(), rect.y())
