@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QScrollArea,
+    QSizeGrip,
     QFrame,
     QSizePolicy,
     QGraphicsDropShadowEffect,
@@ -201,7 +201,7 @@ class ResultWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setMinimumWidth(560)
-        self.setMaximumWidth(720)
+        self.setMinimumHeight(400)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(40)
@@ -281,25 +281,6 @@ class ResultWindow(QWidget):
         top_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
 
         main_layout.addLayout(top_row)
-
-        # ── 滚动区域（top_row 以下所有内容） ──────────────────────────────────
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(
-            "QScrollArea { background: transparent; }"
-            "QScrollBar:vertical { background: #1e1e2e; width: 6px; border-radius: 3px; }"
-            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
-            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
-        )
-        scroll_widget = QWidget()
-        scroll_widget.setStyleSheet("background: transparent;")
-        scroll_layout = QVBoxLayout(scroll_widget)
-        scroll_layout.setContentsMargins(0, 0, 6, 0)
-        scroll_layout.setSpacing(0)
-        scroll.setWidget(scroll_widget)
-        main_layout.addWidget(scroll)
 
         # ── 2 列布局 ───────────────────────────────────────────────────────────
         cols = QHBoxLayout()
@@ -457,9 +438,10 @@ class ResultWindow(QWidget):
 
         cols.addWidget(left_widget, 45)
         cols.addWidget(right_widget, 55)
-        scroll_layout.addLayout(cols)
+        main_layout.addLayout(cols)
 
-        # ── 底部：复制按钮（在滚动区域外，始终可见）──────────────────────────
+        # ── 底部：复制按钮 + 缩放手柄 ─────────────────────────────────────────
+        bottom_row = QHBoxLayout()
         copy_btn = QPushButton("复制结果")
         copy_btn.setFixedHeight(32)
         copy_btn.setStyleSheet(
@@ -468,7 +450,11 @@ class ResultWindow(QWidget):
             "QPushButton:hover { background: #45475a; }"
         )
         copy_btn.clicked.connect(self._copy_result)
-        main_layout.addWidget(copy_btn)
+        bottom_row.addWidget(copy_btn)
+        grip = QSizeGrip(card)
+        grip.setStyleSheet("background: transparent;")
+        bottom_row.addWidget(grip, alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        main_layout.addLayout(bottom_row)
 
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _position_window(self):
