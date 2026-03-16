@@ -12,6 +12,7 @@ from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot, analyze_text
 from ui.text_input_dialog import TextInputDialog
+from ui.screenshot_confirm_dialog import ScreenshotConfirmDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
 
@@ -97,6 +98,12 @@ class BullshitDetectorApp:
         self._overlay = ScreenshotOverlay(self._on_screenshot_taken)
 
     def _on_screenshot_taken(self, image, position=None):
+        dlg = ScreenshotConfirmDialog(image)
+        if position:
+            # 对话框出现在截图区域右上角附近
+            dlg.move(position[0], max(0, position[1] - 20))
+        if not dlg.exec():
+            return  # 用户取消，不消耗 token
         self._capture_position = position
         b64 = image_to_base64(image)
         self._loading = LoadingOverlay()
