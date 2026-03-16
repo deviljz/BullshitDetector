@@ -88,18 +88,15 @@ class ScreenshotOverlay(QWidget):
 
     @staticmethod
     def _grab_region(rect: QRect) -> Image.Image:
-        """rect 为全局逻辑像素坐标，自动乘以 DPR 转为物理像素传给 mss。"""
-        from PyQt6.QtWidgets import QApplication
-        screen = QApplication.instance().screenAt(rect.center())
-        if screen is None:
-            screen = QApplication.instance().primaryScreen()
-        dpr = screen.devicePixelRatio()
+        """rect 为全局逻辑像素坐标。
+        PyQt6 在 Windows DPI-aware 模式下，mss 与 Qt 共用同一套逻辑坐标系，
+        直接传入无需乘以 devicePixelRatio。"""
         with mss.mss() as sct:
             monitor = {
-                "top":    int(rect.y()      * dpr),
-                "left":   int(rect.x()      * dpr),
-                "width":  int(rect.width()  * dpr),
-                "height": int(rect.height() * dpr),
+                "top":    rect.y(),
+                "left":   rect.x(),
+                "width":  rect.width(),
+                "height": rect.height(),
             }
             screenshot = sct.grab(monitor)
             return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
