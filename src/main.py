@@ -33,6 +33,7 @@ class BullshitDetectorApp:
         self._result_window = None
         self._loading = None
         self._capture_position = None
+        self._capture_image = None
         self._busy = False  # 截图/确认/分析任意一个阶段进行中时为 True
         self._setup_tray()
 
@@ -112,6 +113,7 @@ class BullshitDetectorApp:
             self._busy = False
             return  # 用户取消，不消耗 token
         self._capture_position = position
+        self._capture_image = image
         b64 = image_to_base64(image)
         self._loading = LoadingOverlay()
         self._loading.show()
@@ -139,7 +141,9 @@ class BullshitDetectorApp:
         if self._loading:
             self._loading.close()
             self._loading = None
-        self._result_window = ResultWindow(result, position)
+        image = self._capture_image
+        self._capture_image = None
+        self._result_window = ResultWindow(result, position, image=image)
         self._result_window.show()
 
     def run(self):

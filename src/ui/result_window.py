@@ -22,6 +22,8 @@ from PyQt6.QtGui import (
     QConicalGradient,
     QPainterPath,
     QTransform,
+    QImage,
+    QPixmap,
 )
 import pyperclip
 
@@ -183,10 +185,11 @@ class CollapsibleSection(QWidget):
 class ResultWindow(QWidget):
     """赛博朋克风格无边框结果卡片。"""
 
-    def __init__(self, result: dict, position: tuple | None = None):
+    def __init__(self, result: dict, position: tuple | None = None, image=None):
         super().__init__()
         self._result = result
         self._position = position
+        self._image = image
         self._drag_pos: QPoint | None = None
         self._init_window()
         self._init_ui()
@@ -291,12 +294,35 @@ class ResultWindow(QWidget):
 
         main_layout.addLayout(top_row)
 
-        # ── 2 列布局 ───────────────────────────────────────────────────────────
+        # ── 列布局（有截图3列，无截图2列）──────────────────────────────────────
         cols = QHBoxLayout()
         cols.setSpacing(16)
         cols.setContentsMargins(0, 0, 0, 0)
 
-        # 左列：核心信息
+        # ── 截图预览列（仅截图模式）────────────────────────────────────────────
+        if self._image is not None:
+            img = self._image.copy()
+            img.thumbnail((400, 800))
+            w, h = img.size
+            data = img.tobytes("raw", "RGB")
+            qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
+            pixmap = QPixmap.fromImage(qimg)
+            img_lbl = QLabel()
+            img_lbl.setPixmap(pixmap)
+            img_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+            img_lbl.setStyleSheet(
+                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14; padding: 4px;"
+            )
+            img_lbl.setScaledContents(False)
+            img_widget = QWidget()
+            img_widget.setStyleSheet("background: transparent;")
+            img_layout = QVBoxLayout(img_widget)
+            img_layout.setContentsMargins(0, 0, 0, 0)
+            img_layout.addWidget(img_lbl)
+            img_layout.addStretch()
+            cols.addWidget(img_widget, 30)
+
+        # 中列：核心信息
         left_col = QVBoxLayout()
         left_col.setSpacing(10)
         left_col.setContentsMargins(0, 0, 0, 0)
@@ -445,8 +471,9 @@ class ResultWindow(QWidget):
         right_widget.setStyleSheet("background: transparent;")
         right_widget.setLayout(right_col)
 
-        cols.addWidget(left_widget, 45)
-        cols.addWidget(right_widget, 55)
+        mid_stretch, right_stretch = (35, 35) if self._image is not None else (45, 55)
+        cols.addWidget(left_widget, mid_stretch)
+        cols.addWidget(right_widget, right_stretch)
         main_layout.addLayout(cols)
 
         # ── 底部：复制按钮 + 缩放手柄 ─────────────────────────────────────────
