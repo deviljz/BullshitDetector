@@ -10,9 +10,10 @@ from PIL import Image
 class ScreenshotOverlay(QWidget):
     """全屏半透明遮罩，用户拖拽选择截图区域。"""
 
-    def __init__(self, on_capture):
+    def __init__(self, on_capture, on_cancel=None):
         super().__init__()
         self._on_capture = on_capture
+        self._on_cancel = on_cancel
         self._origin = QPoint()
         self._selection = QRect()
         self._is_selecting = False
@@ -32,6 +33,8 @@ class ScreenshotOverlay(QWidget):
         screen = app.screenAt(QCursor.pos()) or app.primaryScreen()
         self.setGeometry(screen.geometry())
         self.show()
+        self.activateWindow()
+        self.setFocus()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -81,9 +84,14 @@ class ScreenshotOverlay(QWidget):
                 image = self._grab_region(rect)
                 position = (rect.x() + rect.width(), rect.y())
                 self._on_capture(image, position)
+            else:
+                if self._on_cancel:
+                    self._on_cancel()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
+            if self._on_cancel:
+                self._on_cancel()
             self.close()
 
     @staticmethod

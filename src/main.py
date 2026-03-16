@@ -95,11 +95,14 @@ class BullshitDetectorApp:
         for k, action in self._tone_actions.items():
             action.setChecked(k == tone_key)
 
+    def _on_capture_cancelled(self):
+        self._busy = False
+
     def _start_capture(self):
         if self._busy:
             return
         self._busy = True
-        self._overlay = ScreenshotOverlay(self._on_screenshot_taken)
+        self._overlay = ScreenshotOverlay(self._on_screenshot_taken, on_cancel=self._on_capture_cancelled)
 
     def _on_screenshot_taken(self, image, position=None):
         dlg = ScreenshotConfirmDialog(image)
