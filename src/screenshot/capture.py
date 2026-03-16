@@ -25,7 +25,14 @@ class ScreenshotOverlay(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setCursor(Qt.CursorShape.CrossCursor)
-        self.showFullScreen()
+
+        # 覆盖所有屏幕组成的虚拟桌面（多屏支持）
+        from PyQt6.QtWidgets import QApplication
+        virtual = QApplication.instance().screens()[0].geometry()
+        for screen in QApplication.instance().screens()[1:]:
+            virtual = virtual.united(screen.geometry())
+        self.setGeometry(virtual)
+        self.show()
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -67,7 +74,9 @@ class ScreenshotOverlay(QWidget):
         if event.button() == Qt.MouseButton.LeftButton and self._is_selecting:
             self._is_selecting = False
             self.close()
-            rect = self._selection.normalized()
+            # _selection 是 widget-local 逻辑像素，转为全局坐标
+            offset = self.geometry().topLeft()
+            rect = self._selection.normalized().translated(offset)
             if rect.width() > 10 and rect.height() > 10:
                 image = self._grab_region(rect)
                 position = (rect.x() + rect.width(), rect.y())
@@ -79,12 +88,18 @@ class ScreenshotOverlay(QWidget):
 
     @staticmethod
     def _grab_region(rect: QRect) -> Image.Image:
+        """rect 为全局逻辑像素坐标，自动乘以 DPR 转为物理像素传给 mss。"""
+        from PyQt6.QtWidgets import QApplication
+        screen = QApplication.instance().screenAt(rect.center())
+        if screen is None:
+            screen = QApplication.instance().primaryScreen()
+        dpr = screen.devicePixelRatio()
         with mss.mss() as sct:
             monitor = {
-                "top": rect.y(),
-                "left": rect.x(),
-                "width": rect.width(),
-                "height": rect.height(),
+                "top":    int(rect.y()      * dpr),
+                "left":   int(rect.x()      * dpr),
+                "width":  int(rect.width()  * dpr),
+                "height": int(rect.height() * dpr),
             }
             screenshot = sct.grab(monitor)
             return Image.frombytes("RGB", screenshot.size, screenshot.bgra, "raw", "BGRX")
