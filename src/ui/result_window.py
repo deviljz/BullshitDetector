@@ -197,11 +197,16 @@ class ResultWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumWidth(560)
-        self.setMinimumHeight(400)
+        screen = QApplication.primaryScreen()
+        if screen:
+            geo = screen.availableGeometry()
+            w = max(420, int(geo.width() * 0.22))
+            h = min(int(w * 2), geo.height() - 80)
+            self.resize(w, h)
+        self.setMinimumWidth(360)
+        self.setMinimumHeight(300)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(40)
@@ -458,14 +463,10 @@ class ResultWindow(QWidget):
 
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _position_window(self):
-        self.adjustSize()
         screen = QApplication.primaryScreen()
         if not screen:
             return
         geo = screen.availableGeometry()
-        max_h = geo.height() - 80
-        if self.height() > max_h:
-            self.resize(self.width(), max_h)
 
         if not self._position:
             self.move(
