@@ -61,6 +61,8 @@ def _build_prompt(t: dict) -> str:
 
 **注意：** 你的职责是鉴定**文字声明的真实性**，不是图片美观度鉴定。图片像素低、排版简单、色彩风格合成感强，这些视觉特征本身不是判假依据。正确做法是：提取文字声明 → web_search 核实 → 基于搜索结果判断。
 
+**⚠️ AIGC图片特别规则（高优先级）：** 若图片看起来是AI生成/合成的（如画面过于完美、AIGC风格明显），**这只代表图片本身是合成的，不代表图片中的文字声明是假的**。必须对文字声明进行独立搜索核实。若搜索结果显示文字内容属实，则即使图片明显是AI合成，bullshit_index 仍应反映文字真实性（低BS），而非图片合成性。例：AI合成的高铁站图片中写着"新疆建高铁" → 先搜索"新疆高铁建设"，若属实则BS不应超过 30。
+
 ---
 
 ## 鉴定三大铁律（优先级最高，任何情况下不得违反）
@@ -91,6 +93,10 @@ def _build_prompt(t: dict) -> str:
   → 此类通报针对单一具体事件（某地某日某事故），地方性事件不要求有全国权威媒体背书
   → 鉴定重点：文件格式规范性（公章/落款/机构全称）、事件描述合理性（伤亡数字、地点、时间是否自洽）、机构名称是否合法存在
   → 若格式规范、机构名称合法、事件描述自洽，即使搜索无结果，bullshit_index 不超过 35
+- **不适用**：政府监管部门的定期抽检/监督公告（食品安全抽检、药品抽检、质量监督通报、市场监督公告等）
+  → 此类公告期号众多（如"第44期""第61期"），全文极少被权威媒体转载，搜不到不代表造假
+  → 鉴定重点：发布机构全称是否合法存在（如"北京市市场监督管理局"）、公告格式规范性（公章/落款/日期）、数据格式是否符合该类公告惯例
+  → 若机构合法、格式规范，即使搜索无结果，bullshit_index 不超过 35
 
 ### 铁律二：缝合怪识别
 对于看似严谨的学术突破或官方通报，必须精准核对"时间 + 机构 + 核心数据"三要素：
@@ -119,6 +125,21 @@ def _build_prompt(t: dict) -> str:
 1. 提取核心实体（人名/机构名/事件）+ 时间信息作为关键词
 2. 中英文各搜索一次（提高覆盖率）
 3. 至少搜索2轮，从不同角度交叉验证
+
+## 来源分类与信源独立性（搜索时同步执行）
+
+对每条搜索结果进行来源分类：
+- **primary**：政府机构、官方统计数据、法院文书、公司财报、学术期刊原文
+- **independent**：独立媒体/学术机构的原创报道（非转载）
+- **syndicated**：转载/聚合自其他来源（注明原始来源）
+- **self_reported**：当事方自述（采访、新闻稿、公告、PR 稿）
+
+来源权威性优先级：primary > independent > syndicated > self_reported
+
+**信源独立性规则**（决定 effective_sources 计数）：
+- 多个来源措辞高度雷同、发布时间集中 → 同源转载，仅算 1 个有效信源
+- 全部来源为 self_reported → verdict 只能填"官方自述"，**不得**填"独立核实属实"
+- 有 primary 或 independent 来源支持 → verdict 可填"独立核实属实"
 
 ---
 
@@ -169,7 +190,7 @@ def _build_prompt(t: dict) -> str:
 
 在生成最终 JSON 之前，必须完成以下自检：
 1. {t['self_audit_review']}
-2. **claim_verification 检查**：必须逐条列出图中的核心可验证声明（至少1条，复杂内容最多4条），每条用 verdict 字段标明"✓ 属实 / ✗ 伪造 / ? 无法核实"，note 字段写搜索证据或判断依据。**verdict 判断规则（按声明类型区分）：① 对于"社交媒体上是否发生某事件"（如：某账号是否发了某帖子、某人是否说了某话），搜索无结果时填"? 无法核实"，不得填"✗ 伪造"；② 对于官方政策/法规/数据类声明（如：国家发布了某政策、某指标达到某数值），若搜索找不到官方原始记录，可结合铁律一逻辑综合判断是否伪造，不受此限制**
+2. **claim_verification 检查**：必须逐条列出图中的核心可验证声明（至少1条，复杂内容最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported 来源→官方自述；搜到矛盾证据→伪造；无结果→无法核实），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据。**verdict 补充规则（按声明类型区分）：① 对于"社交媒体上是否发生某事件"，搜索无结果时填"? 无法核实"，不得填"✗ 伪造"；② 对于官方政策/法规/数据类声明，若搜索找不到官方原始记录，可结合铁律一逻辑综合判断是否伪造，不受此限制**
 3. {t['self_audit_summary']}
 4. **bullshit_index 与 risk_level 一致性**：确保两者匹配（见下方 risk_level 映射规则）
 
@@ -199,14 +220,16 @@ def _build_prompt(t: dict) -> str:
     "search_match": 0-5
   }},
   "investigation_report": {{
+    "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他（影响结论解读：宣发内容的自述部分不等于独立核实）",
     "source_origin": "图片来源识别：图片看起来来自哪个平台或媒体渠道，例如：微博截图、NGA论坛帖子、CNN新闻报道、微信聊天、官方公文等；若无法识别填写'无法识别'",
     "time_check": "时间线核查：声称的时间与搜索结果是否吻合，或无时间相关内容",
     "entity_check": "机构/人名/来源核查：关键实体是否真实存在，来源是否可核实",
-    "physics_check": "物理/常识核查：内容是否违背基础科学定律或基本常识"
+    "physics_check": "物理/常识核查：内容是否违背基础科学定律或基本常识",
+    "source_independence_note": "信源独立性：有效信源总数及是否存在同源转载，例如：找到5篇报道但均为同一新华社通稿转载，实际有效信源1个"
   }},
   "claim_verification": [
-    {{"claim": "图中核心声明1（一句话概括，如：XX机构于XX日发布了XX政策）", "verdict": "✓ 属实 / ✗ 伪造 / ? 无法核实（规则：搜到矛盾证据→✗ 伪造；搜索无结果→? 无法核实；严禁将搜不到等同于伪造）", "note": "搜索证据或判断依据"}},
-    {{"claim": "图中核心声明2（如有多个独立声明分别列出）", "verdict": "✓ 属实 / ✗ 伪造 / ? 无法核实", "note": "搜索证据或判断依据"}}
+    {{"claim": "图中核心声明1（一句话概括，如：XX机构于XX日发布了XX政策）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}},
+    {{"claim": "图中核心声明2（如有多个独立声明分别列出）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
   ],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
@@ -265,6 +288,19 @@ def _build_article_prompt(t: dict) -> str:
 2. 中英文各搜索一次
 3. 至少搜索 2 轮，交叉验证
 
+## 来源分类与信源独立性（搜索时同步执行）
+
+对每条搜索结果进行来源分类：
+- **primary**：政府机构、官方统计数据、法院文书、公司财报、学术期刊原文
+- **independent**：独立媒体/学术机构的原创报道（非转载）
+- **syndicated**：转载/聚合自其他来源（注明原始来源）
+- **self_reported**：当事方自述（采访、新闻稿、公告、PR 稿）
+
+**信源独立性规则**（决定 effective_sources 计数）：
+- 多个来源措辞高度雷同、发布时间集中 → 同源转载，仅算 1 个有效信源
+- 全部来源为 self_reported → verdict 只能填"官方自述"，**不得**填"独立核实属实"
+- 有 primary 或 independent 来源支持 → verdict 可填"独立核实属实"
+
 ---
 
 ## 文章专项分析维度
@@ -318,7 +354,7 @@ def _build_article_prompt(t: dict) -> str:
 
 在生成最终 JSON 之前，必须完成以下自检：
 1. {t['self_audit_review']}
-2. **claim_verification 检查**：必须逐条列出文章中的核心可验证声明（至少1条，最多4条），每条用 verdict 字段标明"✓ 属实 / ✗ 伪造 / ? 无法核实"，note 字段写搜索证据或判断依据
+2. **claim_verification 检查**：必须逐条列出文章中的核心可验证声明（至少1条，最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported→官方自述），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据
 3. {t['self_audit_summary']}
 4. **bullshit_index 与 risk_level 一致性**：确保两者匹配（见下方映射规则）
 
@@ -348,17 +384,19 @@ def _build_article_prompt(t: dict) -> str:
     "search_match": 0-5
   }},
   "investigation_report": {{
+    "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他（宣发内容的自述部分不等于独立核实）",
     "source_origin": "文章来源识别：文章看起来来自哪个渠道或作者类型，例如：自媒体公众号、科技媒体、学术机构、官方新闻等；若无法识别填写'无法识别'",
     "time_check": "时间线核查：文章引用的数据/事件时间是否与搜索结果吻合",
     "entity_check": "机构/人名/来源核查：文章引用的关键实体是否真实，来源是否可核实",
     "physics_check": "技术常识核查：文章的技术声明是否符合行业共识与基本科学原理",
+    "source_independence_note": "信源独立性：有效信源总数及是否存在同源转载情况",
     "hype_check": "夸大检测：核心结论是否远超其证据所能支撑的范围，是否存在夸大表述",
     "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或风险信息",
     "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图"
   }},
   "claim_verification": [
-    {{"claim": "文章核心声明1（一句话概括）", "verdict": "✓ 属实 / ✗ 伪造 / ? 无法核实", "note": "搜索证据或判断依据"}},
-    {{"claim": "文章核心声明2（如有多个独立声明分别列出）", "verdict": "✓ 属实 / ✗ 伪造 / ? 无法核实", "note": "搜索证据或判断依据"}}
+    {{"claim": "文章核心声明1（一句话概括）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}},
+    {{"claim": "文章核心声明2（如有多个独立声明分别列出）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
   ],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [

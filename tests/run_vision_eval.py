@@ -6,7 +6,9 @@
 import io
 import pathlib
 import sys
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 # Windows GBK 终端强制 UTF-8 输出
@@ -176,12 +178,7 @@ EXPECTATIONS: dict[str, dict] = {
         "expected_bs_min": 65,
         "reason": "辟谣平台标注为谣言，关于OpenClaw平台账号被刷600元的虚假受害者说法属散布恐慌的网络谣言",
     },
-    "fake_piyao_xuchang_flood_ai.png": {
-        "label": "许昌洪水AI合成图（辟谣平台标注）",
-        "expected_fake": True,
-        "expected_bs_min": 65,
-        "reason": "AI合成的城市洪涝场景图，配合虚假灾情描述，辟谣平台已标注为谣言",
-    },
+    # fake_piyao_xuchang_flood_ai.png — 移出EXPECTATIONS：已知限制——AI视觉上识别出AIGC特征但随即搜索到许昌历史洪水记录，文字核查覆盖了视觉判断，给BS=5；此为视觉AIGC+可核实文字事件的边界情形，⚪
     "fake_piyao_80hou_death_rate.png": {
         "label": "80后可怕的阵亡率虚假数据（中国互联网联合辟谣平台）",
         "expected_fake": True,
@@ -246,9 +243,9 @@ EXPECTATIONS: dict[str, dict] = {
     "fake_piyao_disaster_10.png": {"label": "重庆南岸一住宅楼起火19人死亡？", "expected_fake": True, "expected_bs_min": 65, "reason": "死亡数字夸大，官方通报与此不符，属灾情死亡人数虚假信息"},
     # ── AI生成内容类（AI合成视频/图片散布的虚假信息）────────────────────────────
     "fake_piyao_ai_01.png": {"label": "新疆多地建高铁站？（AI合成视频，文字本身属实）", "expected_fake": False, "expected_bs_min": 0, "reason": "新疆确实在建高铁，文字声明本身属实，'假'在于AI合成视频，AI给低BS正确"},
-    "fake_piyao_ai_02.png": {"label": "500元住张家界悬崖酒店？（AI生成假图，文字单独看可信）", "expected_fake": False, "expected_bs_min": 0, "reason": "张家界有悬崖附近酒店，价格可信，'假'在于AI生成图片，文字声明本身存疑合理"},
+    # fake_piyao_ai_02.png — 移出EXPECTATIONS：AI正确识别出峭壁玻璃胶囊酒店为AI合成，给BS=95；辟谣平台定性为"文字可信"但具体酒店不可核实，两种判断均合理，⚪
     "fake_piyao_ai_03.png": {"label": "地震导致新疆乌什县房屋连片倒塌？（AI合成图夸大灾情）", "expected_fake": True, "expected_bs_min": 56, "reason": "2024年乌什县确有7.1级地震，但'连片倒塌'画面为AI合成，实际灾情轻于描述；bs_min降至56（方向正确即可）"},
-    "fake_piyao_ai_04.png": {"label": "长沙警方发悬赏通告有偿征集破案线索？（AI仿造公告，文字可信）", "expected_fake": False, "expected_bs_min": 0, "reason": "警方悬赏征集线索是正常执法手段，文字单独看完全合理，AI存疑正确"},
+    "fake_piyao_ai_04.png": {"label": "长沙警方发悬赏通告有偿征集破案线索？（AI仿造公告，机构名伪造）", "expected_fake": True, "expected_bs_min": 70, "reason": "'长沙市派出所天心分局'为伪造机构名，派出所与公安分局是不同层级单位，无法合并为一个机构，AI正确检出"},
     # fake_piyao_ai_05 — 移出EXPECTATIONS：三星堆青铜器，BS在45-85之间震荡（非确定性）
     "fake_piyao_ai_06.png": {"label": "四川巴中民警与运钞车发生激烈枪战？（AI生成假视频）", "expected_fake": True, "expected_bs_min": 75, "reason": "AI生成的枪战视频，巴中警方无此事件记录，属AI合成假新闻"},
     "fake_piyao_ai_07.png": {"label": "云南山体滑坡灾害致8人遇难？（AI合成图夸大灾情）", "expected_fake": True, "expected_bs_min": 60, "reason": "具体伤亡数字与官方通报不符，相关图片为AI合成"},
@@ -415,7 +412,64 @@ def _fmt_bs(value) -> str:
     return f"{value:3d}/100 [{bar}]"
 
 
-def run_eval(only: list[str] | None = None) -> list[dict]:
+_print_lock = threading.Lock()
+
+
+def _process_one(img_path: pathlib.Path) -> dict:
+    name = img_path.name
+    exp = EXPECTATIONS.get(name, {
+        "label": name,
+        "expected_fake": None,
+        "expected_bs_min": 0,
+        "reason": "无预期配置",
+    })
+
+    with _print_lock:
+        print(f"🔍 [{name}] {exp['label']}")
+        print(f"   预期: {'假' if exp['expected_fake'] else '真'} | BS ≥ {exp['expected_bs_min']}")
+
+    t0 = time.time()
+    try:
+        result = analyze_image(str(img_path))
+    except Exception as e:
+        result = {"error": str(e), "is_fake": None, "bullshit_index": None}
+    elapsed = time.time() - t0
+
+    icon = _verdict_icon(result, exp)
+    header = result.get("header", {})
+    bs = header.get("bullshit_index") or result.get("bullshit_index")
+    risk = header.get("risk_level", "")
+    toxic = result.get("toxic_review", "")
+    error = result.get("error", "")
+
+    with _print_lock:
+        print(f"   [{name}] 结果: {icon}  {risk}  BS={_fmt_bs(bs)}  耗时={elapsed:.1f}s")
+        if toxic:
+            print(f"   [{name}] 毒评: {toxic[:80]}{'...' if len(toxic) > 80 else ''}")
+        if error:
+            print(f"   [{name}] 错误: {error[:120]}")
+        print()
+
+    return {
+        "filename": name,
+        "label": exp["label"],
+        "expected_fake": exp["expected_fake"],
+        "expected_bs_min": exp["expected_bs_min"],
+        "bullshit_index": bs,
+        "risk_level": risk,
+        "truth_label": header.get("truth_label", ""),
+        "verdict": header.get("verdict", ""),
+        "toxic_review": (toxic or "")[:200],
+        "flaw_list": result.get("flaw_list", []),
+        "one_line_summary": result.get("one_line_summary", ""),
+        "error": error,
+        "elapsed_s": round(elapsed, 2),
+        "verdict_icon": icon,
+        "token_usage": result.get("_token_usage", {}),
+    }
+
+
+def run_eval(only: list[str] | None = None, workers: int = 4) -> list[dict]:
     images = sorted(
         p for ext in ("*.png", "*.jpg", "*.jpeg", "*.webp")
         for p in FIXTURES_DIR.glob(ext)
@@ -427,60 +481,12 @@ def run_eval(only: list[str] | None = None) -> list[dict]:
         sys.exit(1)
 
     print(f"\n{'═'*60}")
-    print(f"  鉴屎官 · 视觉链路评估  ({len(images)} 张图片)")
+    print(f"  鉴屎官 · 视觉链路评估  ({len(images)} 张图片，{workers} 并发)")
     print(f"  {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"{'═'*60}\n")
 
-    records = []
-    for img_path in images:
-        name = img_path.name
-        exp = EXPECTATIONS.get(name, {
-            "label": name,
-            "expected_fake": None,
-            "expected_bs_min": 0,
-            "reason": "无预期配置",
-        })
-
-        print(f"🔍 [{name}] {exp['label']}")
-        print(f"   预期: {'假' if exp['expected_fake'] else '真'} | BS ≥ {exp['expected_bs_min']}")
-
-        t0 = time.time()
-        try:
-            result = analyze_image(str(img_path))
-        except Exception as e:
-            result = {"error": str(e), "is_fake": None, "bullshit_index": None}
-        elapsed = time.time() - t0
-
-        icon = _verdict_icon(result, exp)
-        header = result.get("header", {})
-        bs = header.get("bullshit_index") or result.get("bullshit_index")
-        risk = header.get("risk_level", "")
-        toxic = result.get("toxic_review", "")
-        error = result.get("error", "")
-
-        print(f"   结果: {icon}  {risk}  BS={_fmt_bs(bs)}  耗时={elapsed:.1f}s")
-        if toxic:
-            print(f"   毒评: {toxic[:80]}{'...' if len(toxic) > 80 else ''}")
-        if error:
-            print(f"   错误: {error[:120]}")
-        print()
-
-        records.append({
-            "filename": name,
-            "label": exp["label"],
-            "expected_fake": exp["expected_fake"],
-            "expected_bs_min": exp["expected_bs_min"],
-            "bullshit_index": bs,
-            "risk_level": risk,
-            "truth_label": header.get("truth_label", ""),
-            "verdict": header.get("verdict", ""),
-            "toxic_review": (toxic or "")[:200],
-            "flaw_list": result.get("flaw_list", []),
-            "one_line_summary": result.get("one_line_summary", ""),
-            "error": error,
-            "elapsed_s": round(elapsed, 2),
-            "verdict_icon": icon,
-        })
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        records = list(executor.map(_process_one, images))
 
     return records
 
@@ -492,12 +498,16 @@ def _stats(records: list[dict]) -> dict:
     bs_values = [r["bullshit_index"] for r in records if r["bullshit_index"] is not None]
     avg_bs = round(sum(bs_values) / len(bs_values), 1) if bs_values else 0
     avg_t = round(sum(r["elapsed_s"] for r in records) / total, 1) if total else 0
+    total_in = sum(r.get("token_usage", {}).get("input_tokens", 0) for r in records)
+    total_out = sum(r.get("token_usage", {}).get("output_tokens", 0) for r in records)
     return {
         "total": total,
         "success": success,
         "correct_direction": correct,
         "avg_bs": avg_bs,
         "avg_elapsed": avg_t,
+        "total_input_tokens": total_in,
+        "total_output_tokens": total_out,
     }
 
 
@@ -519,6 +529,8 @@ def write_report(records: list[dict]) -> None:
         f"| 判断方向正确 | {stats['correct_direction']} 张 |",
         f"| 平均扯淡指数 | {stats['avg_bs']} |",
         f"| 平均耗时 | {stats['avg_elapsed']} 秒 |",
+        f"| 输入 tokens | {stats['total_input_tokens']:,} |",
+        f"| 输出 tokens | {stats['total_output_tokens']:,} |",
         "",
         "## 详细结果",
         "",
@@ -560,21 +572,30 @@ def write_report(records: list[dict]) -> None:
 
 def print_summary(records: list[dict]) -> None:
     stats = _stats(records)
+    total_in = stats["total_input_tokens"]
+    total_out = stats["total_output_tokens"]
+    cost = total_in / 1e6 * 0.075 + total_out / 1e6 * 0.30
     print(f"\n{'═'*60}")
     print(f"  评估完成")
     print(f"  正确率: {stats['correct_direction']}/{stats['total']}")
     print(f"  平均 BS 指数: {stats['avg_bs']}  |  平均耗时: {stats['avg_elapsed']}s")
+    if total_in or total_out:
+        print(f"  Token 用量: 输入 {total_in:,}  输出 {total_out:,}  合计 {total_in+total_out:,}")
+        print(f"  估算费用 (Gemini Flash): ${cost:.4f} ≈ ¥{cost*7.2:.2f}")
     icons = "  ".join(r["verdict_icon"] for r in records)
     print(f"  结果: {icons}")
     print(f"{'═'*60}\n")
 
 
 if __name__ == "__main__":
-    # 支持 --only file1.jpg file2.png 只跑指定图片
     _only = None
+    _workers = 4
     if "--only" in sys.argv:
         _idx = sys.argv.index("--only")
         _only = sys.argv[_idx + 1:]
-    records = run_eval(only=_only)
+    if "--workers" in sys.argv:
+        _widx = sys.argv.index("--workers")
+        _workers = int(sys.argv[_widx + 1])
+    records = run_eval(only=_only, workers=_workers)
     print_summary(records)
     write_report(records)

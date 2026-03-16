@@ -462,6 +462,7 @@ def run_eval(only=None):
             "error": error,
             "elapsed_s": round(elapsed, 2),
             "verdict_icon": icon,
+            "token_usage": result.get("_token_usage", {}),
         })
 
     return records
@@ -474,7 +475,10 @@ def _stats(records):
     bs_values = [r["bullshit_index"] for r in records if r["bullshit_index"] is not None]
     avg_bs = round(sum(bs_values) / len(bs_values), 1) if bs_values else 0
     avg_t = round(sum(r["elapsed_s"] for r in records) / total, 1) if total else 0
-    return {"total": total, "success": success, "correct_direction": correct, "avg_bs": avg_bs, "avg_elapsed": avg_t}
+    total_in = sum(r.get("token_usage", {}).get("input_tokens", 0) for r in records)
+    total_out = sum(r.get("token_usage", {}).get("output_tokens", 0) for r in records)
+    return {"total": total, "success": success, "correct_direction": correct, "avg_bs": avg_bs, "avg_elapsed": avg_t,
+            "total_input_tokens": total_in, "total_output_tokens": total_out}
 
 
 def write_report(records):
@@ -490,6 +494,8 @@ def write_report(records):
         f"| 判断方向正确 | {stats['correct_direction']} 条 |",
         f"| 平均扯淡指数 | {stats['avg_bs']} |",
         f"| 平均耗时 | {stats['avg_elapsed']} 秒 |",
+        f"| 输入 tokens | {stats['total_input_tokens']:,} |",
+        f"| 输出 tokens | {stats['total_output_tokens']:,} |",
         "", "## 详细结果", "",
     ]
     for r in records:
@@ -525,10 +531,16 @@ def write_report(records):
 
 def print_summary(records):
     stats = _stats(records)
+    total_in = stats["total_input_tokens"]
+    total_out = stats["total_output_tokens"]
+    cost = total_in / 1e6 * 0.075 + total_out / 1e6 * 0.30
     print(f"\n{'═'*60}")
     print(f"  评估完成")
     print(f"  正确率: {stats['correct_direction']}/{stats['total']}")
     print(f"  平均 BS 指数: {stats['avg_bs']}  |  平均耗时: {stats['avg_elapsed']}s")
+    if total_in or total_out:
+        print(f"  Token 用量: 输入 {total_in:,}  输出 {total_out:,}  合计 {total_in+total_out:,}")
+        print(f"  估算费用 (Gemini Flash): ${cost:.4f} ≈ ¥{cost*7.2:.2f}")
     icons = "  ".join(r["verdict_icon"] for r in records)
     print(f"  结果: {icons}")
     print(f"{'═'*60}\n")

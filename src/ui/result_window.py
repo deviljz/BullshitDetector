@@ -398,6 +398,24 @@ class ResultWindow(QWidget):
                 v_lbl.setWordWrap(True)
                 v_lbl.setStyleSheet(f"color: {color}; font-size: 11px;")
                 claim_sec._content_layout.addWidget(v_lbl)
+                eff = c.get("effective_sources")
+                src_type = c.get("best_source_type", "")
+                if eff is not None or (src_type and src_type not in ("", "none")):
+                    _TYPE_ZH = {
+                        "primary": "官方/原始",
+                        "independent": "独立媒体",
+                        "syndicated": "转载",
+                        "self_reported": "当事方自述",
+                    }
+                    meta_parts = []
+                    if eff is not None:
+                        meta_parts.append(f"有效信源 {eff} 个")
+                    if src_type and src_type not in ("", "none"):
+                        meta_parts.append(f"最高级别: {_TYPE_ZH.get(src_type, src_type)}")
+                    meta_lbl = QLabel(f"    {'  ·  '.join(meta_parts)}")
+                    meta_lbl.setWordWrap(True)
+                    meta_lbl.setStyleSheet("color: #45475a; font-size: 10px;")
+                    claim_sec._content_layout.addWidget(meta_lbl)
                 if note:
                     n_lbl = QLabel(f"    {note}")
                     n_lbl.setWordWrap(True)
@@ -428,13 +446,21 @@ class ResultWindow(QWidget):
             right_col.addWidget(radar_sec)
 
         # ── 右列：侦查报告（默认折叠）──────────────────────────────────────────
-        if any(report.get(k, "") for k in ("time_check", "entity_check", "physics_check", "source_origin")):
+        _ALL_REPORT_KEYS = ("content_nature", "source_origin", "time_check", "entity_check",
+                            "physics_check", "source_independence_note", "hype_check",
+                            "missing_info", "intent_check")
+        if any(report.get(k, "") for k in _ALL_REPORT_KEYS):
             inv_sec = CollapsibleSection("侦查报告", collapsed=False)
             _REPORT_LABELS = [
-                ("source_origin", "来源识别", "#89dceb"),
-                ("time_check",    "时间核查", "#f9e2af"),
-                ("entity_check",  "实体核查", "#f9e2af"),
-                ("physics_check", "常识核查", "#f9e2af"),
+                ("content_nature",          "内容性质", "#cba6f7"),
+                ("source_origin",           "来源识别", "#89dceb"),
+                ("time_check",              "时间核查", "#f9e2af"),
+                ("entity_check",            "实体核查", "#f9e2af"),
+                ("physics_check",           "常识核查", "#f9e2af"),
+                ("source_independence_note","信源独立性", "#a6e3a1"),
+                ("hype_check",              "夸大检测", "#ffb86c"),
+                ("missing_info",            "遗漏信息", "#ffb86c"),
+                ("intent_check",            "意图检测", "#ffb86c"),
             ]
             for key, label, color in _REPORT_LABELS:
                 val = report.get(key, "")

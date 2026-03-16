@@ -6,10 +6,12 @@ OpenAICompatibleProvider —— 覆盖所有兼容 OpenAI 接口的大模型。
 """
 
 import json
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
 from openai import OpenAI
+import openai
 
 from ai.providers.base import BaseLLMProvider
 from ai.prompts import get_system_prompt, get_article_prompt
@@ -55,6 +57,19 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._model = model
         self._tone = tone
 
+    def _create_with_retry(self, max_retries: int = 5, **kwargs):
+        """带指数退避的 API 调用，处理限速和超时。"""
+        delay = 10
+        for attempt in range(max_retries):
+            try:
+                return self._client.chat.completions.create(**kwargs)
+            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError) as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait = delay * (2 ** attempt)
+                print(f"  ⏳ API 限速/超时，{wait}s 后重试 (attempt {attempt+1}/{max_retries}): {type(e).__name__}")
+                time.sleep(wait)
+
     def _exec_tools_parallel(self, tool_calls) -> list[tuple]:
         """并行执行一轮中所有工具调用，返回有序列表 [(tool_call, func_name, func_args, result), ...]"""
         def _run(tc):
@@ -84,17 +99,22 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 },
             ]
 
+            total_input_tokens = 0
+            total_output_tokens = 0
             choice = None
             for round_idx in range(MAX_TOOL_ROUNDS):
                 # 第一轮强制调用工具（保证至少搜索一次），后续轮次模型自主决定
                 tool_choice = "required" if round_idx == 0 else "auto"
-                response = self._client.chat.completions.create(
+                response = self._create_with_retry(
                     model=self._model,
                     messages=messages,
                     tools=TOOLS,
                     tool_choice=tool_choice,
                     max_tokens=4096,
                 )
+                if response.usage:
+                    total_input_tokens += response.usage.prompt_tokens or 0
+                    total_output_tokens += response.usage.completion_tokens or 0
                 choice = response.choices[0]
 
                 if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
@@ -138,17 +158,21 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     "role": "user",
                     "content": "请根据以上所有信息，严格按照 JSON 格式输出最终分析结果。",
                 })
-                response = self._client.chat.completions.create(
+                response = self._create_with_retry(
                     model=self._model,
                     messages=messages,
                     max_tokens=4096,
                     response_format={"type": "json_object"},
                 )
+                if response.usage:
+                    total_input_tokens += response.usage.prompt_tokens or 0
+                    total_output_tokens += response.usage.completion_tokens or 0
                 content = response.choices[0].message.content
 
             result = parse_json(content)
             result = normalize_result(result)
             result["_search_log"] = search_log
+            result["_token_usage"] = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
             return result
 
         except json.JSONDecodeError as e:
@@ -171,16 +195,21 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 },
             ]
 
+            total_input_tokens = 0
+            total_output_tokens = 0
             choice = None
             for round_idx in range(MAX_TOOL_ROUNDS):
                 tool_choice = "required" if round_idx == 0 else "auto"
-                response = self._client.chat.completions.create(
+                response = self._create_with_retry(
                     model=self._model,
                     messages=messages,
                     tools=TOOLS,
                     tool_choice=tool_choice,
                     max_tokens=4096,
                 )
+                if response.usage:
+                    total_input_tokens += response.usage.prompt_tokens or 0
+                    total_output_tokens += response.usage.completion_tokens or 0
                 choice = response.choices[0]
 
                 if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
@@ -222,17 +251,21 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     "role": "user",
                     "content": "请根据以上所有信息，严格按照 JSON 格式输出最终分析结果。",
                 })
-                response = self._client.chat.completions.create(
+                response = self._create_with_retry(
                     model=self._model,
                     messages=messages,
                     max_tokens=4096,
                     response_format={"type": "json_object"},
                 )
+                if response.usage:
+                    total_input_tokens += response.usage.prompt_tokens or 0
+                    total_output_tokens += response.usage.completion_tokens or 0
                 content = response.choices[0].message.content
 
             result = parse_json(content)
             result = normalize_result(result)
             result["_search_log"] = search_log
+            result["_token_usage"] = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
             return result
 
         except json.JSONDecodeError as e:
