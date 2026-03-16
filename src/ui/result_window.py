@@ -203,8 +203,8 @@ class ResultWindow(QWidget):
             | Qt.WindowType.Tool
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setMinimumWidth(480)
-        self.setMaximumWidth(560)
+        self.setMinimumWidth(560)
+        self.setMaximumWidth(720)
         screen = QApplication.primaryScreen()
         if screen:
             self.setMaximumHeight(screen.availableGeometry().height() - 60)
@@ -303,14 +303,26 @@ class ResultWindow(QWidget):
         scroll_widget.setStyleSheet("background: transparent;")
         scroll_layout = QVBoxLayout(scroll_widget)
         scroll_layout.setContentsMargins(0, 0, 6, 0)
-        scroll_layout.setSpacing(14)
+        scroll_layout.setSpacing(0)
         scroll.setWidget(scroll_widget)
         main_layout.addWidget(scroll)
 
-        # 以下所有 addWidget 改为 scroll_layout
-        _l = scroll_layout  # 别名，下方用 _l 代替 main_layout
+        # ── 2 列布局 ───────────────────────────────────────────────────────────
+        cols = QHBoxLayout()
+        cols.setSpacing(16)
+        cols.setContentsMargins(0, 0, 0, 0)
 
-        # ── 核心判决 verdict ──────────────────────────────────────────────────
+        # 左列：核心信息
+        left_col = QVBoxLayout()
+        left_col.setSpacing(10)
+        left_col.setContentsMargins(0, 0, 0, 0)
+
+        # 右列：可折叠详情
+        right_col = QVBoxLayout()
+        right_col.setSpacing(8)
+        right_col.setContentsMargins(0, 0, 0, 0)
+
+        # ── 左列：核心判决 ─────────────────────────────────────────────────────
         if verdict_text:
             v_lbl = QLabel(verdict_text)
             v_lbl.setWordWrap(True)
@@ -319,23 +331,24 @@ class ResultWindow(QWidget):
                 "background: rgba(69,71,90,120);"
                 "border-radius: 8px; padding: 8px 12px;"
             )
-            _l.addWidget(v_lbl)
+            left_col.addWidget(v_lbl)
 
-        # ── 来源识别 source_origin ─────────────────────────────────────────────
+        # ── 左列：来源识别 ─────────────────────────────────────────────────────
         source_origin = report.get("source_origin", "")
         if source_origin and source_origin != "无法识别":
             src_lbl = QLabel(f"📌 来源：{source_origin}")
             src_lbl.setWordWrap(True)
             src_lbl.setStyleSheet("color: #6c7086; font-size: 11px; padding: 2px 0;")
-            _l.addWidget(src_lbl)
+            left_col.addWidget(src_lbl)
 
-        # ── 分割线 ──────────────────────────────────────────────────────────────
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("color: #313244;")
-        _l.addWidget(sep)
+        # ── 左列：分割线 ───────────────────────────────────────────────────────
+        if verdict_text or source_origin:
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.HLine)
+            sep.setStyleSheet("color: #313244;")
+            left_col.addWidget(sep)
 
-        # ── 锐评 ─────────────────────────────────────────────────────────────────
+        # ── 左列：锐评 ─────────────────────────────────────────────────────────
         if toxic:
             toxic_label = QLabel(toxic)
             toxic_label.setWordWrap(True)
@@ -346,70 +359,55 @@ class ResultWindow(QWidget):
                 "border-radius: 10px;"
                 "padding: 12px 14px;"
             )
-            _l.addWidget(toxic_label)
+            left_col.addWidget(toxic_label)
 
-        # ── 错误提示 ──────────────────────────────────────────────────────────────
+        # ── 左列：错误提示 ─────────────────────────────────────────────────────
         if error:
             err = QLabel(f"⚠ {error}")
             err.setWordWrap(True)
             err.setStyleSheet("color: #f38ba8; font-size: 12px; padding: 4px 0;")
-            _l.addWidget(err)
+            left_col.addWidget(err)
 
-        # ── 声明逐条核查 ─────────────────────────────────────────────────────────
+        # ── 左列：一句话总结 ───────────────────────────────────────────────────
+        if one_line:
+            ol_lbl = QLabel(one_line)
+            ol_lbl.setWordWrap(True)
+            ol_lbl.setStyleSheet(
+                "color: #6c7086; font-size: 11px; font-style: italic; padding: 4px 0;"
+            )
+            left_col.addWidget(ol_lbl)
+
+        left_col.addStretch()
+
+        # ── 右列：声明核查（默认展开）──────────────────────────────────────────
         claims: list = self._result.get("claim_verification", [])
         if claims:
-            _VERDICT_COLOR = {
-                "✓": "#a6e3a1",
-                "✗": "#f38ba8",
-                "?": "#f9e2af",
-            }
-            claim_frame = QFrame()
-            claim_frame.setStyleSheet(
-                "QFrame { background: rgba(69,71,90,80); border-radius: 8px; }"
-            )
-            claim_layout = QVBoxLayout(claim_frame)
-            claim_layout.setContentsMargins(12, 8, 12, 8)
-            claim_layout.setSpacing(6)
-
-            title_lbl = QLabel("🔍 声明核查")
-            title_lbl.setStyleSheet("color: #89b4fa; font-size: 12px; font-weight: bold;")
-            claim_layout.addWidget(title_lbl)
-
+            _VERDICT_COLOR = {"✓": "#a6e3a1", "✗": "#f38ba8", "?": "#f9e2af"}
+            claim_sec = CollapsibleSection("声明核查", collapsed=False)
             for c in claims:
                 claim_text = c.get("claim", "")
                 verdict = c.get("verdict", "?")
                 note = c.get("note", "")
                 color = _VERDICT_COLOR.get(verdict[0] if verdict else "?", "#f9e2af")
-                row = QHBoxLayout()
-                row.setSpacing(6)
-                v_lbl = QLabel(verdict)
-                v_lbl.setFixedWidth(80)
-                v_lbl.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold;")
-                row.addWidget(v_lbl)
-                text_col = QVBoxLayout()
-                text_col.setSpacing(1)
-                c_lbl = QLabel(claim_text)
-                c_lbl.setWordWrap(True)
-                c_lbl.setStyleSheet("color: #cdd6f4; font-size: 12px;")
-                text_col.addWidget(c_lbl)
+                v_lbl = QLabel(f"{verdict}  {claim_text}")
+                v_lbl.setWordWrap(True)
+                v_lbl.setStyleSheet(f"color: {color}; font-size: 11px;")
+                claim_sec._content_layout.addWidget(v_lbl)
                 if note:
-                    n_lbl = QLabel(note)
+                    n_lbl = QLabel(f"    {note}")
                     n_lbl.setWordWrap(True)
-                    n_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
-                    text_col.addWidget(n_lbl)
-                row.addLayout(text_col)
-                claim_layout.addLayout(row)
+                    n_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
+                    claim_sec._content_layout.addWidget(n_lbl)
+            right_col.addWidget(claim_sec)
 
-            _l.addWidget(claim_frame)
-
-        # ── 折叠：破绽列表（默认展开，核心内容）─────────────────────────────────
+        # ── 右列：破绽列表（默认展开）──────────────────────────────────────────
         if flaw_list:
             flaw_sec = CollapsibleSection("破绽列表", collapsed=False)
             for item in flaw_list:
                 flaw_sec.add_line(f"• {item}", "#f38ba8")
-            _l.addWidget(flaw_sec)
+            right_col.addWidget(flaw_sec)
 
-        # ── 折叠：多维评分雷达（默认折叠）─────────────────────────────────────
+        # ── 右列：多维评分雷达（默认折叠）──────────────────────────────────────
         if any(radar.values()):
             radar_sec = CollapsibleSection("多维评分雷达", collapsed=True)
             _RADAR_LABELS = {
@@ -422,9 +420,9 @@ class ResultWindow(QWidget):
                 val = radar.get(key, 0)
                 bar = "█" * val + "░" * (5 - val)
                 radar_sec.add_line(f"{label}  [{bar}]  {val}/5", color)
-            _l.addWidget(radar_sec)
+            right_col.addWidget(radar_sec)
 
-        # ── 折叠：侦查报告（默认折叠）────────────────────────────────────────
+        # ── 右列：侦查报告（默认折叠）──────────────────────────────────────────
         if any(report.get(k, "") for k in ("time_check", "entity_check", "physics_check", "source_origin")):
             inv_sec = CollapsibleSection("侦查报告", collapsed=True)
             _REPORT_LABELS = [
@@ -437,9 +435,9 @@ class ResultWindow(QWidget):
                 val = report.get(key, "")
                 if val and val != "未核查":
                     inv_sec.add_line(f"[{label}] {val}", color)
-            _l.addWidget(inv_sec)
+            right_col.addWidget(inv_sec)
 
-        # ── 折叠：搜索过程（默认折叠，标题显示次数）──────────────────────────
+        # ── 右列：搜索过程（默认折叠，标题显示次数）──────────────────────────
         search_log: list = self._result.get("_search_log", [])
         if search_log:
             search_sec = CollapsibleSection(f"搜索过程（{len(search_log)} 次）", collapsed=True)
@@ -451,18 +449,21 @@ class ResultWindow(QWidget):
                 search_sec.add_line(f"🔍 {query}", "#89b4fa")
                 if preview:
                     search_sec.add_line(f"    → {preview}", "#585b70")
-            _l.addWidget(search_sec)
+            right_col.addWidget(search_sec)
 
-        # ── 一句话总结 ───────────────────────────────────────────────────────────
-        if one_line:
-            ol_lbl = QLabel(one_line)
-            ol_lbl.setWordWrap(True)
-            ol_lbl.setStyleSheet(
-                "color: #6c7086; font-size: 11px; font-style: italic; padding: 4px 0;"
-            )
-            _l.addWidget(ol_lbl)
+        right_col.addStretch()
 
-        _l.addStretch()
+        # 左列 45% / 右列 55%
+        left_widget = QWidget()
+        left_widget.setStyleSheet("background: transparent;")
+        left_widget.setLayout(left_col)
+        right_widget = QWidget()
+        right_widget.setStyleSheet("background: transparent;")
+        right_widget.setLayout(right_col)
+
+        cols.addWidget(left_widget, 45)
+        cols.addWidget(right_widget, 55)
+        scroll_layout.addLayout(cols)
 
         # ── 底部：复制按钮（在滚动区域外，始终可见）──────────────────────────
         copy_btn = QPushButton("复制结果")
