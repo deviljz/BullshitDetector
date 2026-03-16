@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import Qt, QTimer, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QPoint, QRect, QSize
 from PyQt6.QtGui import (
     QFont,
     QColor,
@@ -190,7 +190,7 @@ class ResultWindow(QWidget):
         self._drag_pos: QPoint | None = None
         self._init_window()
         self._init_ui()
-        QTimer.singleShot(0, self._position_window)
+        self._position_window()  # show() 前完成定位，避免窗口闪烁到默认位置
 
     # ── 窗口属性 ───────────────────────────────────────────────────────────────
     def _init_window(self):
