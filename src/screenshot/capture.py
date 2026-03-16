@@ -98,12 +98,16 @@ class ScreenshotOverlay(QWidget):
 
         app = QApplication.instance()
         screen = app.screenAt(rect.center()) or app.primaryScreen()
-        # 抓取该屏幕全图，然后用屏幕局部坐标裁剪
+        # grabWindow(0) 返回物理像素 pixmap（width=physical），copy() 接受物理坐标
+        # rect 是逻辑坐标，需乘 DPR 转物理坐标后裁剪
+        dpr = screen.devicePixelRatio()
         full_pixmap = screen.grabWindow(0)
         origin = screen.geometry().topLeft()
-        local_x = rect.x() - origin.x()
-        local_y = rect.y() - origin.y()
-        cropped = full_pixmap.copy(local_x, local_y, rect.width(), rect.height())
+        phys_x = round((rect.x() - origin.x()) * dpr)
+        phys_y = round((rect.y() - origin.y()) * dpr)
+        phys_w = round(rect.width() * dpr)
+        phys_h = round(rect.height() * dpr)
+        cropped = full_pixmap.copy(phys_x, phys_y, phys_w, phys_h)
         buf = QBuffer()
         buf.open(QIODeviceBase.OpenModeFlag.ReadWrite)
         cropped.save(buf, "PNG")
