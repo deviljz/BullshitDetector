@@ -26,10 +26,9 @@ CONFIG_PATH = _ROOT / "config.json"
 
 # ── 对比模型列表 ───────────────────────────────────────────────────────────────
 MODELS = [
-    ("gemini-2.0-flash",           "Gemini 2.0 Flash（当前基准）"),
-    ("gemini-2.5-flash",           "Gemini 2.5 Flash"),
-    ("gemini-3-flash-preview",     "Gemini 3 Flash Preview（即3.0）"),
-    ("gemini-3.1-flash-lite-preview", "Gemini 3.1 Flash-Lite Preview"),
+    ("gemini-3-flash-preview",  "Gemini 3 Flash Preview（当前基准）"),
+    ("gemini-2.5-pro",          "Gemini 2.5 Pro"),
+    ("gemini-3.1-pro-preview",  "Gemini 3.1 Pro Preview"),
 ]
 
 
@@ -93,22 +92,12 @@ def run_for_model(model_id: str, fixtures: list) -> dict:
 def main():
     from run_vision_eval import EXPECTATIONS, FIXTURES_DIR
 
-    # 上一轮（gemini-2.0-flash）跑出来的失败/偏差 fixture 名单
+    # 两轮独立运行中均失败的顽固用例（Pro模型专项测试）
     FAILING_FIXTURES = [
-        "deg_jpg_real_web_gz_police_qktb.jpg",
-        "fake_piyao_ai_02.png",
-        "fake_piyao_ai_07.png",
-        "fake_piyao_ai_10.png",
-        "fake_piyao_policy_02.png",
-        "fake_rt_iran_hormuz_rmb.jpeg",
-        "real_baidu_iran_marriage_age.jpg",
-        "real_mps_waimai_rumor_case.png",
-        "real_web_bj_food_61st.jpg",
-        "real_web_kashi_food_2024.jpg",
-        "real_web_mem_2024_report.jpg",
-        "real_web_samr_gas_cert2024.jpg",
-        "real_web_stats_gdp_2024q3.jpg",
-        "real_web_tax_stock_zhejiang.jpg",
+        "fake_rt_iran_hormuz_rmb.jpeg",       # 4个Flash模型全败，最顽固
+        "fake_piyao_ai_07.png",               # 2.0/2.5 Flash均败
+        "real_mps_waimai_rumor_case.png",     # 2.0 Flash两轮均败
+        "real_web_mem_2024_report.jpg",       # 2.0 Flash两轮均败
     ]
 
     # 只测失败的 fixture
