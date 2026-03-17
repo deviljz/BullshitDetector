@@ -9,7 +9,7 @@ from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PyQt6.QtCore import QObject, pyqtSignal, Qt
 import keyboard
 
-from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY
+from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY, TEXT_HOTKEY
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
@@ -24,6 +24,7 @@ from ui.loading_overlay import LoadingOverlay
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
     trigger_image = pyqtSignal()
+    trigger_text = pyqtSignal()
     show_result = pyqtSignal(dict, object)  # result_dict, position
 
 
@@ -34,6 +35,7 @@ class BullshitDetectorApp:
         self.signals = SignalBridge()
         self.signals.trigger_capture.connect(self._start_capture)
         self.signals.trigger_image.connect(self._start_image_input)
+        self.signals.trigger_text.connect(self._start_text_input)
         self.signals.show_result.connect(self._show_result)
         self._overlay = None
         self._result_window = None
@@ -64,11 +66,11 @@ class BullshitDetectorApp:
         self._tray.setToolTip("BullshitDetector")
         menu = QMenu()
 
-        capture_action = QAction("截图分析", menu)
+        capture_action = QAction(f"截图分析  ({SCREENSHOT_HOTKEY.upper()})", menu)
         capture_action.triggered.connect(self._start_capture)
         menu.addAction(capture_action)
 
-        text_action = QAction("文字/链接分析", menu)
+        text_action = QAction(f"文字/链接分析  ({TEXT_HOTKEY.upper()})", menu)
         text_action.triggered.connect(self._start_text_input)
         menu.addAction(text_action)
 
@@ -77,6 +79,19 @@ class BullshitDetectorApp:
         menu.addAction(image_action)
 
         menu.addSeparator()
+
+        # 搜索引擎子菜单
+        search_menu = QMenu("搜索引擎", menu)
+        self._search_actions: dict[str, QAction] = {}
+        current_search = load_config().get("search_provider", "ddg")
+        for key, label in (("ddg", "DuckDuckGo（需代理）"), ("tavily", "Tavily（国内可用）")):
+            action = QAction(label, search_menu)
+            action.setCheckable(True)
+            action.setChecked(key == current_search)
+            action.triggered.connect(lambda checked, k=key: self._set_search_provider(k))
+            search_menu.addAction(action)
+            self._search_actions[key] = action
+        menu.addMenu(search_menu)
 
         # 回复风格子菜单
         tone_menu = QMenu("回复风格", menu)
@@ -98,6 +113,13 @@ class BullshitDetectorApp:
         menu.addAction(quit_action)
         self._tray.setContextMenu(menu)
         self._tray.show()
+
+    def _set_search_provider(self, key: str):
+        cfg = load_config()
+        cfg["search_provider"] = key
+        save_config(cfg)
+        for k, action in self._search_actions.items():
+            action.setChecked(k == key)
 
     def _set_tone(self, tone_key: str):
         cfg = load_config()
@@ -125,10 +147,15 @@ class BullshitDetectorApp:
         self._capture_position = position
         self._capture_image = image
         b64 = image_to_base64(image)
-        self._loading = LoadingOverlay()
-        self._loading.show()
         mode = dlg.selected_mode
-        target = self._run_summary if mode == "summarize" else self._run_analysis
+        self._loading = LoadingOverlay(mode)
+        self._loading.show()
+        if mode == "summarize":
+            target = self._run_summary
+        elif mode == "explain":
+            target = self._run_explain
+        else:
+            target = self._run_analysis
         threading.Thread(target=target, args=(b64,), daemon=True).start()
 
     def _run_analysis(self, image_base64: str):
@@ -139,6 +166,12 @@ class BullshitDetectorApp:
     def _run_summary(self, image_base64: str):
         from ai.analyzer import summarize_screenshot
         result = summarize_screenshot(image_base64)
+        self._busy = False
+        self.signals.show_result.emit(result, self._capture_position)
+
+    def _run_explain(self, image_base64: str):
+        from ai.analyzer import explain_screenshot
+        result = explain_screenshot(image_base64)
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
@@ -154,15 +187,22 @@ class BullshitDetectorApp:
             if image:
                 self._capture_image = image
                 b64 = image_to_base64(image)
-                self._loading = LoadingOverlay()
+                mode = dlg.selected_mode
+                self._loading = LoadingOverlay(mode)
                 self._loading.show()
-                threading.Thread(target=self._run_analysis, args=(b64,), daemon=True).start()
+                if mode == "summarize":
+                    target = self._run_summary
+                elif mode == "explain":
+                    target = self._run_explain
+                else:
+                    target = self._run_analysis
+                threading.Thread(target=target, args=(b64,), daemon=True).start()
 
     def _start_text_input(self):
         dlg = TextInputDialog()
         if dlg.exec():
             text = dlg.get_content()
-            self._loading = LoadingOverlay()
+            self._loading = LoadingOverlay("analyze")
             self._loading.show()
             threading.Thread(target=self._run_article_analysis, args=(text,), daemon=True).start()
 
@@ -192,9 +232,10 @@ class BullshitDetectorApp:
 
         keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
         keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_image.emit())
+        keyboard.add_hotkey(TEXT_HOTKEY, lambda: self.signals.trigger_text.emit())
         self._tray.showMessage(
             "BullshitDetector",
-            f"已启动！按 {SCREENSHOT_HOTKEY} 截图分析",
+            f"{SCREENSHOT_HOTKEY.upper()} 截图  {TEXT_HOTKEY.upper()} 文字  {IMAGE_HOTKEY.upper()} 图片",
             QSystemTrayIcon.MessageIcon.Information,
             3000,
         )

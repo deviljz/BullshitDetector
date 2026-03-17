@@ -31,6 +31,7 @@ class ImageInputDialog(QDialog):
         super().__init__(parent)
         self._image: Image.Image | None = None
         self._drag_pos = QPoint()
+        self.selected_mode = "analyze"
 
         self.setWindowTitle("")
         self.setWindowFlags(
@@ -102,6 +103,10 @@ class ImageInputDialog(QDialog):
         if not qimg.isNull():
             self._set_image(_qimage_to_pil(qimg))
 
+    def _accept_with_mode(self, mode: str):
+        self.selected_mode = mode
+        self.accept()
+
     def _set_image(self, img: Image.Image):
         self._image = img
         # 生成预览 pixmap
@@ -120,7 +125,8 @@ class ImageInputDialog(QDialog):
         orig_w, orig_h = img.size
         self._hint_lbl.setText(f"✓ 已加载  {orig_w}×{orig_h}px — 可重新拖拽或粘贴替换")
         self._hint_lbl.setStyleSheet("color: #a6e3a1; font-size: 11px; padding: 4px 0;")
-        self._confirm_btn.setEnabled(True)
+        for btn in (self._btn_summarize, self._btn_explain, self._btn_analyze):
+            btn.setEnabled(True)
         self.adjustSize()
 
     def _build_ui(self):
@@ -176,6 +182,8 @@ class ImageInputDialog(QDialog):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
+        _disabled_style = "QPushButton:disabled { color: #45475a; border-color: #313244; background: #1a1a2e; }"
+
         cancel_btn = QPushButton("取消")
         cancel_btn.setFixedHeight(34)
         cancel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -186,22 +194,48 @@ class ImageInputDialog(QDialog):
         )
         cancel_btn.clicked.connect(self.reject)
 
-        self._confirm_btn = QPushButton("开始分析 →")
-        self._confirm_btn.setFixedHeight(34)
-        self._confirm_btn.setEnabled(False)
-        self._confirm_btn.setDefault(True)
-        self._confirm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._confirm_btn.setStyleSheet(
+        self._btn_summarize = QPushButton("📝 总结")
+        self._btn_summarize.setFixedHeight(34)
+        self._btn_summarize.setEnabled(False)
+        self._btn_summarize.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_summarize.setStyleSheet(
+            "QPushButton { background: #1a2e1e; color: #a6e3a1; border: 1px solid #a6e3a1;"
+            " border-radius: 6px; font-size: 13px; font-weight: bold; padding: 0 18px; }"
+            "QPushButton:hover { background: #1e4028; border-color: #b6f3b1; color: #b6f3b1; }"
+            + _disabled_style
+        )
+        self._btn_summarize.clicked.connect(lambda: self._accept_with_mode("summarize"))
+
+        self._btn_explain = QPushButton("❓ 解释")
+        self._btn_explain.setFixedHeight(34)
+        self._btn_explain.setEnabled(False)
+        self._btn_explain.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_explain.setStyleSheet(
+            "QPushButton { background: #1a2a3e; color: #89b4fa; border: 1px solid #89b4fa;"
+            " border-radius: 6px; font-size: 13px; font-weight: bold; padding: 0 18px; }"
+            "QPushButton:hover { background: #1e3a5e; border-color: #99c4ff; color: #99c4ff; }"
+            + _disabled_style
+        )
+        self._btn_explain.clicked.connect(lambda: self._accept_with_mode("explain"))
+
+        self._btn_analyze = QPushButton("🔍 鉴屎官")
+        self._btn_analyze.setFixedHeight(34)
+        self._btn_analyze.setEnabled(False)
+        self._btn_analyze.setDefault(True)
+        self._btn_analyze.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_analyze.setStyleSheet(
             "QPushButton { background: #1e1a2e; color: #cba6f7; border: 1px solid #cba6f7;"
             " border-radius: 6px; font-size: 13px; font-weight: bold; padding: 0 18px; }"
             "QPushButton:hover { background: #2e1a4e; border-color: #d4b6ff; color: #d4b6ff; }"
-            "QPushButton:disabled { color: #45475a; border-color: #313244; background: #1a1a2e; }"
+            + _disabled_style
         )
-        self._confirm_btn.clicked.connect(self.accept)
+        self._btn_analyze.clicked.connect(lambda: self._accept_with_mode("analyze"))
 
         btn_row.addStretch()
         btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(self._confirm_btn)
+        btn_row.addWidget(self._btn_summarize)
+        btn_row.addWidget(self._btn_explain)
+        btn_row.addWidget(self._btn_analyze)
         layout.addLayout(btn_row)
 
     def get_image(self) -> Image.Image | None:

@@ -1,22 +1,47 @@
-"""Function Calling 工具定义 + 搜索执行"""
+"""Function Calling 工具定义 + 搜索执行（支持 DuckDuckGo / Tavily）"""
 
 from typing import List
-from ddgs import DDGS
+
+
+def _search_ddg(query: str, max_results: int = 5) -> List[dict]:
+    try:
+        from ddgs import DDGS
+        with DDGS(timeout=15) as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+            return [
+                {"title": r["title"], "snippet": r["body"], "url": r["href"]}
+                for r in results
+            ]
+    except Exception as e:
+        return [{"error": f"DuckDuckGo 搜索失败（可能需要代理）: {e}"}]
+
+
+def _search_tavily(query: str, api_key: str, max_results: int = 5) -> List[dict]:
+    try:
+        from tavily import TavilyClient
+        client = TavilyClient(api_key=api_key)
+        resp = client.search(query, max_results=max_results)
+        return [
+            {"title": r.get("title", ""), "snippet": r.get("content", ""), "url": r.get("url", "")}
+            for r in resp.get("results", [])
+        ]
+    except Exception as e:
+        return [{"error": f"Tavily 搜索失败: {e}"}]
 
 
 class SearchProvider:
-    """封装搜索引擎，当前使用 DuckDuckGo"""
+    """搜索引擎门面，根据 config 自动选择 DDG 或 Tavily。"""
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
-        try:
-            with DDGS(timeout=15) as ddgs:
-                results = list(ddgs.text(query, max_results=max_results))
-                return [
-                    {"title": r["title"], "snippet": r["body"], "url": r["href"]}
-                    for r in results
-                ]
-        except Exception:
-            return [{"error": "搜索失败，请基于已有知识判断"}]
+        from config.manager import load as _load_cfg
+        cfg = _load_cfg()
+        provider = cfg.get("search_provider", "ddg")
+        if provider == "tavily":
+            key = cfg.get("tavily_api_key", "")
+            if not key or key.startswith("tvly-xxx"):
+                return [{"error": "Tavily API Key 未配置，请在 config.json 中填写 tavily_api_key"}]
+            return _search_tavily(query, key, max_results)
+        return _search_ddg(query, max_results)
 
 
 # 注册给大模型的工具定义
@@ -39,7 +64,6 @@ TOOLS = [
         },
     }
 ]
-
 
 # 全局搜索实例
 _search_provider = SearchProvider()

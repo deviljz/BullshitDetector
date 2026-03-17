@@ -115,6 +115,19 @@ class ScreenshotConfirmDialog(QDialog):
         """)
         btn_summarize.clicked.connect(lambda: self._accept_with_mode("summarize"))
 
+        btn_explain = QPushButton("❓ 解释")
+        btn_explain.setFixedHeight(34)
+        btn_explain.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_explain.setStyleSheet("""
+            QPushButton {
+                background: #1a2a3e; color: #89b4fa;
+                border: 1px solid #89b4fa; border-radius: 6px;
+                font-size: 13px; font-weight: bold; padding: 0 18px;
+            }
+            QPushButton:hover { background: #1e3a5e; border-color: #99c4ff; color: #99c4ff; }
+        """)
+        btn_explain.clicked.connect(lambda: self._accept_with_mode("explain"))
+
         btn_analyze = QPushButton("🔍 鉴屎官")
         btn_analyze.setFixedHeight(34)
         btn_analyze.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -132,5 +145,6 @@ class ScreenshotConfirmDialog(QDialog):
         btn_row.addStretch()
         btn_row.addWidget(btn_cancel)
         btn_row.addWidget(btn_summarize)
+        btn_row.addWidget(btn_explain)
         btn_row.addWidget(btn_analyze)
         layout.addLayout(btn_row)

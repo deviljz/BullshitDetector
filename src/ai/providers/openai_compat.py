@@ -14,7 +14,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, execute_tool
 
@@ -345,6 +345,64 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         except Exception as e:
             return {"_mode": "summary", "error": f"{type(e).__name__}: {e}",
                     "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
+
+
+    def explain(self, image_base64: str) -> dict:
+        """截图内容一键解释（单次调用，无工具循环）"""
+        try:
+            response = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_explain_prompt()},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "请解释这张截图中的内容："},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    ]},
+                ],
+                max_tokens=1536,
+                response_format={"type": "json_object"},
+            )
+            result = parse_json(response.choices[0].message.content)
+            result.setdefault("_mode", "explain")
+            result.setdefault("type", "concept")
+            result.setdefault("subject", "")
+            result.setdefault("short_answer", "")
+            result.setdefault("detail", "")
+            result.setdefault("origin", "")
+            result.setdefault("usage", "")
+            result.setdefault("original_language", "zh")
+            return result
+        except Exception as e:
+            return {"_mode": "explain", "error": f"{type(e).__name__}: {e}",
+                    "type": "concept", "subject": "解释失败", "short_answer": "解释失败",
+                    "detail": "", "origin": "", "usage": "", "original_language": "zh"}
+
+    def explain_article(self, text: str) -> dict:
+        """文章/文字内容一键解释（单次调用，无工具循环）"""
+        try:
+            response = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_explain_prompt()},
+                    {"role": "user", "content": f"请解释以下内容：\n\n{text[:8000]}"},
+                ],
+                max_tokens=1536,
+                response_format={"type": "json_object"},
+            )
+            result = parse_json(response.choices[0].message.content)
+            result.setdefault("_mode", "explain")
+            result.setdefault("type", "concept")
+            result.setdefault("subject", "")
+            result.setdefault("short_answer", "")
+            result.setdefault("detail", "")
+            result.setdefault("origin", "")
+            result.setdefault("usage", "")
+            result.setdefault("original_language", "zh")
+            return result
+        except Exception as e:
+            return {"_mode": "explain", "error": f"{type(e).__name__}: {e}",
+                    "type": "concept", "subject": "解释失败", "short_answer": "解释失败",
+                    "detail": "", "origin": "", "usage": "", "original_language": "zh"}
 
 
 def _error_result(error_msg: str) -> dict:

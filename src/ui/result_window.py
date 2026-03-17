@@ -221,6 +221,9 @@ class ResultWindow(QWidget):
         if self._result.get("_mode") == "summary":
             self._init_summary_ui()
             return
+        if self._result.get("_mode") == "explain":
+            self._init_explain_ui()
+            return
 
         # 新 schema 解包
         header = self._result.get("header", {})
@@ -624,6 +627,140 @@ class ResultWindow(QWidget):
             w, h = img.size
             data = img.tobytes("raw", "RGB")
             from PyQt6.QtGui import QImage, QPixmap
+            qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
+            img_lbl = QLabel()
+            img_lbl.setPixmap(QPixmap.fromImage(qimg))
+            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_lbl.setStyleSheet(
+                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14;"
+            )
+            main_layout.addWidget(img_lbl)
+
+    def _init_explain_ui(self):
+        _TYPE_LABEL = {
+            "identify": "角色识别",
+            "meme":     "网络梗",
+            "concept":  "概念解释",
+        }
+        explain_type = self._result.get("type", "concept")
+        subject = self._result.get("subject", "")
+        short_answer = self._result.get("short_answer", "")
+        detail = self._result.get("detail", "")
+        origin = self._result.get("origin", "")
+        usage = self._result.get("usage", "")
+        orig_lang = self._result.get("original_language", "zh")
+        error = self._result.get("error")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            "#card {"
+            "  background: rgba(24, 24, 37, 242);"
+            "  border-radius: 18px;"
+            "  border: 1px solid #45475a;"
+            "}"
+        )
+        outer.addWidget(card)
+
+        main_layout = QVBoxLayout(card)
+        main_layout.setContentsMargins(28, 22, 28, 22)
+        main_layout.setSpacing(16)
+
+        # ── 顶栏：标题 + 类型标签 + 语言标签 + 关闭 ────────────────────────────
+        top_row = QHBoxLayout()
+        title_lbl = QLabel("❓ 解释")
+        title_lbl.setStyleSheet("color: #89b4fa; font-size: 16px; font-weight: bold;")
+        top_row.addWidget(title_lbl)
+
+        type_lbl = QLabel(_TYPE_LABEL.get(explain_type, explain_type))
+        type_lbl.setStyleSheet(
+            "color: #89b4fa; font-size: 11px; background: #1a2a3e;"
+            " border: 1px solid #89b4fa; border-radius: 4px; padding: 2px 8px;"
+        )
+        top_row.addWidget(type_lbl)
+
+        if orig_lang and orig_lang != "zh":
+            lang_lbl = QLabel(f"原文: {orig_lang}")
+            lang_lbl.setStyleSheet(
+                "color: #6c7086; font-size: 11px; background: #313244;"
+                " border-radius: 4px; padding: 2px 8px;"
+            )
+            top_row.addWidget(lang_lbl)
+
+        top_row.addStretch()
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
+            "QPushButton:hover { background: #ff5555; color: #fff; }"
+        )
+        close_btn.clicked.connect(self.close)
+        top_row.addWidget(close_btn)
+        main_layout.addLayout(top_row)
+
+        # ── 分隔线 ───────────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        main_layout.addWidget(sep)
+
+        # ── subject 大字 ─────────────────────────────────────────────────────────
+        if error:
+            subj_lbl = QLabel(f"💥 {error}")
+            subj_lbl.setStyleSheet("color: #f38ba8; font-size: 14px;")
+        else:
+            subj_lbl = QLabel(subject or "（无法识别对象）")
+            subj_lbl.setStyleSheet(
+                "color: #89b4fa; font-size: 18px; font-weight: bold; padding: 2px 0;"
+            )
+        subj_lbl.setWordWrap(True)
+        main_layout.addWidget(subj_lbl)
+
+        # ── 一句话回答 ───────────────────────────────────────────────────────────
+        if short_answer:
+            ans_lbl = QLabel(short_answer)
+            ans_lbl.setWordWrap(True)
+            ans_lbl.setStyleSheet(
+                "color: #cdd6f4; font-size: 15px; font-weight: bold;"
+                " background: #1e1e2e; border-radius: 8px; padding: 10px 14px;"
+            )
+            main_layout.addWidget(ans_lbl)
+
+        # ── 详细说明 ─────────────────────────────────────────────────────────────
+        if detail:
+            detail_lbl = QLabel(detail)
+            detail_lbl.setWordWrap(True)
+            detail_lbl.setStyleSheet("color: #a6adc8; font-size: 13px; padding: 4px 0;")
+            main_layout.addWidget(detail_lbl)
+
+        # ── 来源/出处 ────────────────────────────────────────────────────────────
+        if origin:
+            orig_lbl = QLabel(f"📌 来源：{origin}")
+            orig_lbl.setWordWrap(True)
+            orig_lbl.setStyleSheet("color: #6c7086; font-size: 12px; padding: 2px 0;")
+            main_layout.addWidget(orig_lbl)
+
+        # ── 用法（仅非空时显示，黄色块）──────────────────────────────────────────
+        if usage:
+            usage_lbl = QLabel(f"💬 用法：{usage}")
+            usage_lbl.setWordWrap(True)
+            usage_lbl.setStyleSheet(
+                "color: #f9e2af; font-size: 12px;"
+                " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
+            )
+            main_layout.addWidget(usage_lbl)
+
+        main_layout.addStretch()
+
+        # ── 截图预览（若有）─────────────────────────────────────────────────────
+        if self._image is not None:
+            img = self._image.copy()
+            img.thumbnail((320, 240))
+            w, h = img.size
+            data = img.tobytes("raw", "RGB")
             qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
             img_lbl = QLabel()
             img_lbl.setPixmap(QPixmap.fromImage(qimg))

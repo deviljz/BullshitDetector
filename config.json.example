@@ -1,6 +1,9 @@
 {
   "_comment": "将此文件复制为 config.json，填入你的 API Key，修改 active_provider 切换模型",
   "active_provider": "openai_compatible",
+  "_search_comment": "搜索引擎：ddg=DuckDuckGo（需代理）| tavily=Tavily（国内可用，免费1000次/月 https://tavily.com）",
+  "search_provider": "ddg",
+  "tavily_api_key": "tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "providers": {
     "openai_compatible": {
       "_comment": "通用 OpenAI 兼容接口，默认配置为 Gemini",

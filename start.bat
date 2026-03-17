@@ -6,5 +6,4 @@ if not exist ".venv\Scripts\activate.bat" (
 )
 
 call .venv\Scripts\activate.bat
-cd src
-python -X utf8 main.py
+python -X utf8 src\main.py

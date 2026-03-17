@@ -15,3 +15,12 @@ build/
 *.swp
 *.swo
 *~
+
+# logs & test artifacts
+logs/
+tests/*.log
+tests/reports/
+tests/capture_test_output/
+tests/model_compare_report.md
+tests/text_eval_report.md
+tests/vision_eval_report.md
