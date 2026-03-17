@@ -744,6 +744,8 @@ class ResultWindow(QWidget):
             table.verticalHeader().setVisible(False)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+            ROW_H = 26
+            table.verticalHeader().setDefaultSectionSize(ROW_H)
             table.setStyleSheet(
                 "QTableWidget { background: #1e1e2e; color: #cdd6f4; font-size: 12px;"
                 "  gridline-color: #313244; border: none; border-radius: 6px; }"
@@ -758,7 +760,6 @@ class ResultWindow(QWidget):
                         table.setItem(i, col_pair * 2,     QTableWidgetItem(ch.get("name", "")))
                         table.setItem(i, col_pair * 2 + 1, QTableWidgetItem(ch.get("work", "")))
             HEADER_H = 28
-            ROW_H = 26
             max_visible = 13
             table.setFixedHeight(HEADER_H + ROW_H * min(n_rows, max_visible))
             main_layout.addWidget(table)
