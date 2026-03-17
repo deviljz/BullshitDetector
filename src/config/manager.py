@@ -8,10 +8,14 @@ ConfigManager —— 读取 config.json，支持回退到环境变量。
 
 import json
 import os
+import sys
 import pathlib
 
-# config.json 路径：src/ 的上级目录（即项目根）
-_CONFIG_PATH = pathlib.Path(__file__).parent.parent.parent / "config.json"
+# 打包后用 exe 所在目录；开发时用项目根目录
+if getattr(sys, "frozen", False):
+    _CONFIG_PATH = pathlib.Path(sys.executable).parent / "config.json"
+else:
+    _CONFIG_PATH = pathlib.Path(__file__).parent.parent.parent / "config.json"
 
 
 def load() -> dict:

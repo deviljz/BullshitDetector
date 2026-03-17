@@ -32,12 +32,20 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] Cleaning old build artifacts...
+echo [3/5] Generating icon...
+python create_icon.py
+if errorlevel 1 (
+    echo [ERROR] Icon generation failed
+    pause & exit /b 1
+)
+
+echo.
+echo [4/5] Cleaning old build artifacts...
 if exist dist\BullshitDetector.exe del /f /q dist\BullshitDetector.exe
 if exist build rmdir /s /q build
 
 echo.
-echo [4/4] Packaging with PyInstaller...
+echo [5/5] Packaging with PyInstaller...
 pyinstaller BullshitDetector.spec --noconfirm
 if errorlevel 1 (
     echo [ERROR] PyInstaller failed, check output above

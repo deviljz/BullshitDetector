@@ -16,6 +16,9 @@ build/
 *.swo
 *~
 
+# generated assets
+assets/
+
 # logs & test artifacts
 logs/
 tests/*.log

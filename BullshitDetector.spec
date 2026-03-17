@@ -53,5 +53,5 @@ exe = EXE(
     console=False,          # 无黑色控制台窗口
     disable_windowed_traceback=False,
     uac_admin=True,         # keyboard 全局热键需要管理员权限
-    icon=None,
+    icon='assets/icon.ico',
 )
