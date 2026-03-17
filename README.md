@@ -129,7 +129,7 @@ start.bat
 
 | 供应商 | active_provider 值 | 推荐模型 | 国内直连 |
 |--------|-------------------|---------|---------|
-| Gemini (Google) | `openai_compatible` | `gemini-2.0-flash` | ❌ |
+| Gemini (Google) | `openai_compatible` | `gemini-2.5-flash`（免费层可用） | ❌ |
 | DeepSeek | `deepseek` | `deepseek-chat` | ✅ |
 | Kimi（月之暗面）| `kimi` | `moonshot-v1-32k` | ✅ |
 | 通义千问 | `qwen` | `qwen-vl-max` | ✅ |
