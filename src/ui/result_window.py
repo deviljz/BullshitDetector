@@ -218,6 +218,10 @@ class ResultWindow(QWidget):
 
     # ── UI 构建 ────────────────────────────────────────────────────────────────
     def _init_ui(self):
+        if self._result.get("_mode") == "summary":
+            self._init_summary_ui()
+            return
+
         # 新 schema 解包
         header = self._result.get("header", {})
         bs_index = header.get("bullshit_index") or self._result.get("bullshit_index", 50) or 50
@@ -515,6 +519,120 @@ class ResultWindow(QWidget):
         main_layout.addLayout(bottom_row)
 
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
+    def _init_summary_ui(self):
+        headline = self._result.get("headline", "")
+        key_points: list = self._result.get("key_points", [])
+        bias_note = self._result.get("bias_note", "")
+        orig_lang = self._result.get("original_language", "zh")
+        error = self._result.get("error")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            "#card {"
+            "  background: rgba(24, 24, 37, 242);"
+            "  border-radius: 18px;"
+            "  border: 1px solid #45475a;"
+            "}"
+        )
+        outer.addWidget(card)
+
+        main_layout = QVBoxLayout(card)
+        main_layout.setContentsMargins(28, 22, 28, 22)
+        main_layout.setSpacing(16)
+
+        # ── 顶栏：标题 + 语言标签 + 关闭 ───────────────────────────────────────
+        top_row = QHBoxLayout()
+        title_lbl = QLabel("📝 内容总结")
+        title_lbl.setStyleSheet("color: #a6e3a1; font-size: 16px; font-weight: bold;")
+        top_row.addWidget(title_lbl)
+
+        if orig_lang and orig_lang != "zh":
+            lang_lbl = QLabel(f"原文: {orig_lang}")
+            lang_lbl.setStyleSheet(
+                "color: #6c7086; font-size: 11px; background: #313244;"
+                " border-radius: 4px; padding: 2px 8px;"
+            )
+            top_row.addWidget(lang_lbl)
+
+        top_row.addStretch()
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
+            "QPushButton:hover { background: #ff5555; color: #fff; }"
+        )
+        close_btn.clicked.connect(self.close)
+        top_row.addWidget(close_btn)
+        main_layout.addLayout(top_row)
+
+        # ── 分隔线 ──────────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        main_layout.addWidget(sep)
+
+        # ── 一句话结论 ──────────────────────────────────────────────────────────
+        if error:
+            hl_lbl = QLabel(f"💥 {error}")
+            hl_lbl.setStyleSheet("color: #f38ba8; font-size: 14px;")
+        else:
+            hl_lbl = QLabel(headline or "（无法提取结论）")
+            hl_lbl.setStyleSheet(
+                "color: #cdd6f4; font-size: 17px; font-weight: bold;"
+                " background: #1e1e2e; border-radius: 8px; padding: 10px 14px;"
+            )
+        hl_lbl.setWordWrap(True)
+        main_layout.addWidget(hl_lbl)
+
+        # ── 要点列表 ────────────────────────────────────────────────────────────
+        if key_points:
+            pts_lbl = QLabel("要点")
+            pts_lbl.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold;")
+            main_layout.addWidget(pts_lbl)
+            for pt in key_points:
+                row = QHBoxLayout()
+                dot = QLabel("▸")
+                dot.setFixedWidth(16)
+                dot.setStyleSheet("color: #a6e3a1; font-size: 13px;")
+                txt = QLabel(pt)
+                txt.setWordWrap(True)
+                txt.setStyleSheet("color: #cdd6f4; font-size: 13px;")
+                row.addWidget(dot, 0, Qt.AlignmentFlag.AlignTop)
+                row.addWidget(txt, 1)
+                main_layout.addLayout(row)
+
+        # ── 偏向备注 ────────────────────────────────────────────────────────────
+        if bias_note:
+            bias_lbl = QLabel(f"⚠️ {bias_note}")
+            bias_lbl.setWordWrap(True)
+            bias_lbl.setStyleSheet(
+                "color: #f9e2af; font-size: 12px;"
+                " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
+            )
+            main_layout.addWidget(bias_lbl)
+
+        main_layout.addStretch()
+
+        # ── 截图预览（若有）────────────────────────────────────────────────────
+        if self._image is not None:
+            img = self._image.copy()
+            img.thumbnail((320, 240))
+            w, h = img.size
+            data = img.tobytes("raw", "RGB")
+            from PyQt6.QtGui import QImage, QPixmap
+            qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
+            img_lbl = QLabel()
+            img_lbl.setPixmap(QPixmap.fromImage(qimg))
+            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_lbl.setStyleSheet(
+                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14;"
+            )
+            main_layout.addWidget(img_lbl)
+
     def _position_window(self):
         screen = QApplication.primaryScreen()
         if not screen:

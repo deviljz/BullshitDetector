@@ -34,6 +34,7 @@ class ScreenshotConfirmDialog(QDialog):
             }
         """)
         self._drag_pos = QPoint()
+        self.selected_mode = "analyze"
         self._build_ui(image)
         self.adjustSize()
 
@@ -51,6 +52,10 @@ class ScreenshotConfirmDialog(QDialog):
 
     def mouseReleaseEvent(self, event):
         self._drag_pos = QPoint()
+
+    def _accept_with_mode(self, mode: str):
+        self.selected_mode = mode
+        self.accept()
 
     def _build_ui(self, image: Image.Image):
         layout = QVBoxLayout(self)
@@ -97,11 +102,24 @@ class ScreenshotConfirmDialog(QDialog):
         """)
         btn_cancel.clicked.connect(self.reject)
 
-        btn_confirm = QPushButton("开始分析 →")
-        btn_confirm.setFixedHeight(34)
-        btn_confirm.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_confirm.setDefault(True)
-        btn_confirm.setStyleSheet("""
+        btn_summarize = QPushButton("📝 总结")
+        btn_summarize.setFixedHeight(34)
+        btn_summarize.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_summarize.setStyleSheet("""
+            QPushButton {
+                background: #1a2e1e; color: #a6e3a1;
+                border: 1px solid #a6e3a1; border-radius: 6px;
+                font-size: 13px; font-weight: bold; padding: 0 18px;
+            }
+            QPushButton:hover { background: #1e4028; border-color: #b6f3b1; color: #b6f3b1; }
+        """)
+        btn_summarize.clicked.connect(lambda: self._accept_with_mode("summarize"))
+
+        btn_analyze = QPushButton("🔍 鉴屎官")
+        btn_analyze.setFixedHeight(34)
+        btn_analyze.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn_analyze.setDefault(True)
+        btn_analyze.setStyleSheet("""
             QPushButton {
                 background: #1e1a2e; color: #cba6f7;
                 border: 1px solid #cba6f7; border-radius: 6px;
@@ -109,9 +127,10 @@ class ScreenshotConfirmDialog(QDialog):
             }
             QPushButton:hover { background: #2e1a4e; border-color: #d4b6ff; color: #d4b6ff; }
         """)
-        btn_confirm.clicked.connect(self.accept)
+        btn_analyze.clicked.connect(lambda: self._accept_with_mode("analyze"))
 
         btn_row.addStretch()
         btn_row.addWidget(btn_cancel)
-        btn_row.addWidget(btn_confirm)
+        btn_row.addWidget(btn_summarize)
+        btn_row.addWidget(btn_analyze)
         layout.addLayout(btn_row)

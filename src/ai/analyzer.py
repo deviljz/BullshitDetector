@@ -41,6 +41,16 @@ def analyze_text(text: str) -> dict:
     return _load_provider().analyze_article(text)
 
 
+def summarize_screenshot(image_base64: str) -> dict:
+    """截图内容一键总结（中文输出，外文自动翻译）。"""
+    return _load_provider().summarize(image_base64)
+
+
+def summarize_text(text: str) -> dict:
+    """文章/声明一键总结（中文输出，外文自动翻译）。"""
+    return _load_provider().summarize_article(text)
+
+
 def analyze_image(image_path: str) -> dict:
     """
     从本地文件路径分析图片真实性（测试 / 批处理链路）。

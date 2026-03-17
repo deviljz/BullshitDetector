@@ -414,5 +414,31 @@ def _build_article_prompt(t: dict) -> str:
     )
 
 
+def get_summary_prompt() -> str:
+    """一键总结模式的系统 prompt（无工具调用，单次输出）"""
+    return """你是一个信息提炼助手。用户会发给你截图或文章内容，你的任务是提炼核心信息并以中文输出。
+
+## 输出规则
+- **无论原文是什么语言，一律用中文输出**
+- 不需要搜索外部信息，直接根据内容本身提炼
+- 去掉废话、营销语气和重复内容
+- 如原文存在明显立场偏向或利益关联，在 bias_note 中标注
+
+## 输出格式（严格 JSON，不要加 markdown 代码块）
+{
+  "_mode": "summary",
+  "headline": "一句话核心结论（≤30字）",
+  "key_points": [
+    "要点1（简洁短句）",
+    "要点2",
+    "要点3"
+  ],
+  "original_language": "zh 或 en 或其他语言代码",
+  "bias_note": "如无偏向留空字符串"
+}
+
+要点数量：3~5条，每条≤40字。"""
+
+
 # 向后兼容：默认毒舌风格（供测试和旧代码直接 import 使用）
 SYSTEM_PROMPT = get_system_prompt("toxic")

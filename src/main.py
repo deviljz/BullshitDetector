@@ -127,11 +127,18 @@ class BullshitDetectorApp:
         b64 = image_to_base64(image)
         self._loading = LoadingOverlay()
         self._loading.show()
-        thread = threading.Thread(target=self._run_analysis, args=(b64,), daemon=True)
-        thread.start()
+        mode = dlg.selected_mode
+        target = self._run_summary if mode == "summarize" else self._run_analysis
+        threading.Thread(target=target, args=(b64,), daemon=True).start()
 
     def _run_analysis(self, image_base64: str):
         result = analyze_screenshot(image_base64)
+        self._busy = False
+        self.signals.show_result.emit(result, self._capture_position)
+
+    def _run_summary(self, image_base64: str):
+        from ai.analyzer import summarize_screenshot
+        result = summarize_screenshot(image_base64)
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 

@@ -14,7 +14,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, execute_tool
 
@@ -293,6 +293,58 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             return _error_result(f"JSONDecodeError: {e}")
         except Exception as e:
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+
+
+    def summarize(self, image_base64: str) -> dict:
+        """截图一键总结（单次调用，无工具循环）"""
+        try:
+            response = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_summary_prompt()},
+                    {"role": "user", "content": [
+                        {"type": "text", "text": "请总结这张截图的内容："},
+                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
+                    ]},
+                ],
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+            )
+            import json
+            result = parse_json(response.choices[0].message.content)
+            result.setdefault("_mode", "summary")
+            result.setdefault("headline", "")
+            result.setdefault("key_points", [])
+            result.setdefault("original_language", "zh")
+            result.setdefault("bias_note", "")
+            return result
+        except Exception as e:
+            return {"_mode": "summary", "error": f"{type(e).__name__}: {e}",
+                    "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
+
+    def summarize_article(self, text: str) -> dict:
+        """文章一键总结（单次调用，无工具循环）"""
+        try:
+            response = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_summary_prompt()},
+                    {"role": "user", "content": f"请总结以下内容：\n\n{text[:8000]}"},
+                ],
+                max_tokens=1024,
+                response_format={"type": "json_object"},
+            )
+            import json
+            result = parse_json(response.choices[0].message.content)
+            result.setdefault("_mode", "summary")
+            result.setdefault("headline", "")
+            result.setdefault("key_points", [])
+            result.setdefault("original_language", "zh")
+            result.setdefault("bias_note", "")
+            return result
+        except Exception as e:
+            return {"_mode": "summary", "error": f"{type(e).__name__}: {e}",
+                    "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
 
 
 def _error_result(error_msg: str) -> dict:
