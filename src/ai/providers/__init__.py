@@ -34,12 +34,7 @@ def get_provider(config: dict) -> BaseLLMProvider:
     provider_cfg = config.get("providers", {}).get(active, {})
     tone = config.get("response_tone", "toxic")
 
-    cls = _REGISTRY.get(active)
-    if cls is None:
-        raise ValueError(
-            f"未知的 provider: '{active}'。"
-            f"可选值: {list(_REGISTRY.keys())}"
-        )
+    cls = _REGISTRY.get(active, OpenAICompatibleProvider)
 
     return cls(
         api_key=provider_cfg.get("api_key", ""),

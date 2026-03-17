@@ -81,22 +81,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         with ThreadPoolExecutor(max_workers=len(tool_calls)) as ex:
             return list(ex.map(_run, tool_calls))
 
-    def analyze(self, image_base64: str) -> dict:
+    def analyze(self, images: list[str]) -> dict:
         """ReAct 循环：思考 → 工具调用 → 综合输出 JSON"""
         try:
             search_log: list[dict] = []
+            label = "这些截图" if len(images) > 1 else "这张截图"
+            user_content: list[dict] = [{"type": "text", "text": f"请分析{label}中的内容真实性："}]
+            for b64 in images:
+                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
             messages: list[dict] = [
                 {"role": "system", "content": get_system_prompt(self._tone)},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": "请分析这张截图中的内容真实性："},
-                        {
-                            "type": "image_url",
-                            "image_url": {"url": f"data:image/png;base64,{image_base64}"},
-                        },
-                    ],
-                },
+                {"role": "user", "content": user_content},
             ]
 
             total_input_tokens = 0
@@ -295,17 +290,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
 
-    def summarize(self, image_base64: str) -> dict:
+    def summarize(self, images: list[str]) -> dict:
         """截图一键总结（单次调用，无工具循环）"""
         try:
+            user_content: list[dict] = [{"type": "text", "text": "请总结这些内容："}]
+            for b64 in images:
+                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
             response = self._create_with_retry(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": get_summary_prompt()},
-                    {"role": "user", "content": [
-                        {"type": "text", "text": "请总结这张截图的内容："},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
-                    ]},
+                    {"role": "user", "content": user_content},
                 ],
                 max_tokens=1024,
                 response_format={"type": "json_object"},
@@ -347,17 +342,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
 
 
-    def explain(self, image_base64: str) -> dict:
+    def explain(self, images: list[str]) -> dict:
         """截图内容一键解释（单次调用，无工具循环）"""
         try:
+            user_content: list[dict] = [{"type": "text", "text": "请解释这些内容："}]
+            for b64 in images:
+                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
             response = self._create_with_retry(
                 model=self._model,
                 messages=[
                     {"role": "system", "content": get_explain_prompt()},
-                    {"role": "user", "content": [
-                        {"type": "text", "text": "请解释这张截图中的内容："},
-                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_base64}"}},
-                    ]},
+                    {"role": "user", "content": user_content},
                 ],
                 max_tokens=4096,
                 response_format={"type": "json_object"},

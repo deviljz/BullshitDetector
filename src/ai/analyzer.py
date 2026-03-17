@@ -21,29 +21,19 @@ def _load_provider():
     return get_provider(load_config())
 
 
-def analyze_screenshot(image_base64: str) -> dict:
-    """
-    分析截图内容真实性（GUI 主链路）。
-
-    Args:
-        image_base64: PNG 图片的 base64 字符串（不含 data:image 前缀）
-    """
-    return _load_provider().analyze(image_base64)
+def analyze_screenshot(images: list[str]) -> dict:
+    """分析截图内容真实性。images 为 base64 字符串列表（可多张）。"""
+    return _load_provider().analyze(images)
 
 
 def analyze_text(text: str) -> dict:
-    """
-    分析文章/声明文字的可信度（文字/链接分析链路）。
-
-    Args:
-        text: 文章正文或声明内容（URL 已由调用方转换为正文）
-    """
+    """分析文章/声明文字的可信度。"""
     return _load_provider().analyze_article(text)
 
 
-def summarize_screenshot(image_base64: str) -> dict:
+def summarize_screenshot(images: list[str]) -> dict:
     """截图内容一键总结（中文输出，外文自动翻译）。"""
-    return _load_provider().summarize(image_base64)
+    return _load_provider().summarize(images)
 
 
 def summarize_text(text: str) -> dict:
@@ -51,9 +41,9 @@ def summarize_text(text: str) -> dict:
     return _load_provider().summarize_article(text)
 
 
-def explain_screenshot(image_base64: str) -> dict:
+def explain_screenshot(images: list[str]) -> dict:
     """截图内容一键解释（中文输出）。"""
-    return _load_provider().explain(image_base64)
+    return _load_provider().explain(images)
 
 
 def explain_text(text: str) -> dict:
@@ -62,19 +52,11 @@ def explain_text(text: str) -> dict:
 
 
 def analyze_image(image_path: str) -> dict:
-    """
-    从本地文件路径分析图片真实性（测试 / 批处理链路）。
-
-    Args:
-        image_path: 本地图片路径（支持 PNG / JPG / BMP 等 Pillow 可读格式）
-
-    Returns:
-        标准化结果字典（is_fake, bullshit_index, toxic_review 等字段）
-    """
+    """从本地文件路径分析图片真实性（测试 / 批处理链路）。"""
     from PIL import Image
 
     img = Image.open(image_path).convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
-    image_base64 = base64.b64encode(buf.getvalue()).decode("utf-8")
-    return _load_provider().analyze(image_base64)
+    b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+    return _load_provider().analyze([b64])

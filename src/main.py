@@ -14,8 +14,7 @@ from config.manager import load as load_config, save as save_config, get_active_
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot, analyze_text
-from ui.text_input_dialog import TextInputDialog
-from ui.image_input_dialog import ImageInputDialog
+from ui.unified_input_dialog import UnifiedInputDialog
 from ui.screenshot_confirm_dialog import ScreenshotConfirmDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
@@ -23,8 +22,7 @@ from ui.loading_overlay import LoadingOverlay
 
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
-    trigger_image = pyqtSignal()
-    trigger_text = pyqtSignal()
+    trigger_unified = pyqtSignal()
     show_result = pyqtSignal(dict, object)  # result_dict, position
 
 
@@ -34,8 +32,7 @@ class BullshitDetectorApp:
         self.app.setQuitOnLastWindowClosed(False)
         self.signals = SignalBridge()
         self.signals.trigger_capture.connect(self._start_capture)
-        self.signals.trigger_image.connect(self._start_image_input)
-        self.signals.trigger_text.connect(self._start_text_input)
+        self.signals.trigger_unified.connect(self._start_unified_input)
         self.signals.show_result.connect(self._show_result)
         self._overlay = None
         self._result_window = None
@@ -70,13 +67,9 @@ class BullshitDetectorApp:
         capture_action.triggered.connect(self._start_capture)
         menu.addAction(capture_action)
 
-        text_action = QAction(f"文字/链接分析  ({TEXT_HOTKEY.upper()})", menu)
-        text_action.triggered.connect(self._start_text_input)
-        menu.addAction(text_action)
-
-        image_action = QAction(f"图片分析  ({IMAGE_HOTKEY.upper()})", menu)
-        image_action.triggered.connect(self._start_image_input)
-        menu.addAction(image_action)
+        unified_action = QAction(f"图片/文字分析  ({IMAGE_HOTKEY.upper()})", menu)
+        unified_action.triggered.connect(self._start_unified_input)
+        menu.addAction(unified_action)
 
         menu.addSeparator()
 
@@ -159,55 +152,60 @@ class BullshitDetectorApp:
         threading.Thread(target=target, args=(b64,), daemon=True).start()
 
     def _run_analysis(self, image_base64: str):
-        result = analyze_screenshot(image_base64)
+        result = analyze_screenshot([image_base64])
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
     def _run_summary(self, image_base64: str):
         from ai.analyzer import summarize_screenshot
-        result = summarize_screenshot(image_base64)
+        result = summarize_screenshot([image_base64])
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
     def _run_explain(self, image_base64: str):
         from ai.analyzer import explain_screenshot
-        result = explain_screenshot(image_base64)
+        result = explain_screenshot([image_base64])
         self._busy = False
         self.signals.show_result.emit(result, self._capture_position)
 
-    def _start_image_input(self):
-        dlg = ImageInputDialog()
-        # 居中显示
+    def _start_unified_input(self):
+        dlg = UnifiedInputDialog()
         screen = self.app.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
             dlg.move(geo.center() - dlg.rect().center())
-        if dlg.exec():
-            image = dlg.get_image()
-            if image:
-                self._capture_image = image
-                b64 = image_to_base64(image)
-                mode = dlg.selected_mode
-                self._loading = LoadingOverlay(mode)
-                self._loading.show()
-                if mode == "summarize":
-                    target = self._run_summary
-                elif mode == "explain":
-                    target = self._run_explain
-                else:
-                    target = self._run_analysis
-                threading.Thread(target=target, args=(b64,), daemon=True).start()
-
-    def _start_text_input(self):
-        dlg = TextInputDialog()
-        if dlg.exec():
-            text = dlg.get_content()
-            self._loading = LoadingOverlay("analyze")
+        if not dlg.exec():
+            return
+        mode = dlg.selected_mode
+        images = dlg.get_images()
+        if images:
+            from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot
+            b64_list = [image_to_base64(img) for img in images]
+            self._capture_image = images[0]
+            self._loading = LoadingOverlay(mode)
             self._loading.show()
-            threading.Thread(target=self._run_article_analysis, args=(text,), daemon=True).start()
+            if mode == "summarize":
+                threading.Thread(target=lambda: self._emit(summarize_screenshot(b64_list)), daemon=True).start()
+            elif mode == "explain":
+                threading.Thread(target=lambda: self._emit(explain_screenshot(b64_list)), daemon=True).start()
+            else:
+                threading.Thread(target=lambda: self._emit(analyze_screenshot(b64_list)), daemon=True).start()
+        else:
+            text = dlg.get_text()
+            if not text:
+                return
+            self._loading = LoadingOverlay(mode)
+            self._loading.show()
+            if mode == "summarize":
+                from ai.analyzer import summarize_text
+                threading.Thread(target=lambda: self._emit(summarize_text(text)), daemon=True).start()
+            elif mode == "explain":
+                from ai.analyzer import explain_text
+                threading.Thread(target=lambda: self._emit(explain_text(text)), daemon=True).start()
+            else:
+                threading.Thread(target=lambda: self._emit(analyze_text(text)), daemon=True).start()
 
-    def _run_article_analysis(self, text: str):
-        result = analyze_text(text)
+    def _emit(self, result: dict):
         self.signals.show_result.emit(result, None)
 
     def _show_result(self, result: dict, position):
@@ -231,11 +229,10 @@ class BullshitDetectorApp:
             return 1
 
         keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
-        keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_image.emit())
-        keyboard.add_hotkey(TEXT_HOTKEY, lambda: self.signals.trigger_text.emit())
+        keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
         self._tray.showMessage(
             "BullshitDetector",
-            f"{SCREENSHOT_HOTKEY.upper()} 截图  {TEXT_HOTKEY.upper()} 文字  {IMAGE_HOTKEY.upper()} 图片",
+            f"{SCREENSHOT_HOTKEY.upper()} 截图  {IMAGE_HOTKEY.upper()} 图片/文字分析",
             QSystemTrayIcon.MessageIcon.Information,
             3000,
         )
