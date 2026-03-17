@@ -753,12 +753,19 @@ class ResultWindow(QWidget):
                 "  border: none; padding: 4px 8px; }"
                 "QTableWidget::item { padding: 4px 8px; }"
             )
-            for i in range(n_rows):
-                for col_pair, idx in enumerate([i * 2, i * 2 + 1]):
+            # 推算原图网格列数（25格→5列，16格→4列）
+            grid_cols_img = math.ceil(math.sqrt(n))
+            # 列优先填充：左列先填 0..n_rows-1，再右列 n_rows..2*n_rows-1
+            for col_pair in range(2):
+                for row_i in range(n_rows):
+                    idx = col_pair * n_rows + row_i
                     if idx < n:
                         ch = characters[idx]
-                        table.setItem(i, col_pair * 2,     QTableWidgetItem(ch.get("name", "")))
-                        table.setItem(i, col_pair * 2 + 1, QTableWidgetItem(ch.get("work", "")))
+                        img_row = idx // grid_cols_img + 1
+                        img_col = idx % grid_cols_img + 1
+                        name_label = f"{img_row}行{img_col}列 {ch.get('name', '')}"
+                        table.setItem(row_i, col_pair * 2,     QTableWidgetItem(name_label))
+                        table.setItem(row_i, col_pair * 2 + 1, QTableWidgetItem(ch.get("work", "")))
             HEADER_H = 28
             max_visible = 13
             table.setFixedHeight(HEADER_H + ROW_H * min(n_rows, max_visible))
