@@ -729,6 +729,40 @@ class ResultWindow(QWidget):
             )
             main_layout.addWidget(ans_lbl)
 
+        # ── 多角色列表 ───────────────────────────────────────────────────────────
+        characters = self._result.get("characters", [])
+        if characters and explain_type == "identify":
+            from PyQt6.QtWidgets import QScrollArea, QTableWidget, QTableWidgetItem, QHeaderView
+            table = QTableWidget(len(characters), 3)
+            table.setHorizontalHeaderLabels(["角色名", "作品", "备注"])
+            table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            table.verticalHeader().setVisible(False)
+            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+            table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
+            table.setStyleSheet(
+                "QTableWidget { background: #1e1e2e; color: #cdd6f4; font-size: 12px;"
+                "  gridline-color: #313244; border: none; border-radius: 6px; }"
+                "QHeaderView::section { background: #181825; color: #89b4fa; font-size: 11px;"
+                "  border: none; padding: 4px 8px; }"
+                "QTableWidget::item { padding: 4px 8px; }"
+            )
+            for i, ch in enumerate(characters):
+                table.setItem(i, 0, QTableWidgetItem(ch.get("name", "")))
+                table.setItem(i, 1, QTableWidgetItem(ch.get("work", "")))
+                table.setItem(i, 2, QTableWidgetItem(ch.get("note", "")))
+            row_h = 26
+            max_visible = 10
+            visible_rows = min(len(characters), max_visible)
+            table.setFixedHeight(table.horizontalHeader().height() + row_h * visible_rows + 4)
+            scroll = QScrollArea()
+            scroll.setWidget(table)
+            scroll.setWidgetResizable(True)
+            scroll.setFixedHeight(table.height() + 4)
+            scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+            main_layout.addWidget(scroll)
+
         # ── 详细说明 ─────────────────────────────────────────────────────────────
         if detail:
             detail_lbl = QLabel(detail)
