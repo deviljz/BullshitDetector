@@ -380,6 +380,12 @@ EXPECTATIONS: dict[str, dict] = {
     "deg_phone_fake_earthquake_beijing_warning.jpg":{"label":"北京6.8级地震谣言-phone降级","expected_fake":True,"expected_bs_min":56,"reason":"手机拍屏，BS=95"},
     "deg_phone_fake_food_shrimp_tomato_warning.jpg":{"label":"虾番茄相克谣言-phone降级","expected_fake":True,"expected_bs_min":56,"reason":"手机拍屏，BS=70"},
     "deg_phone_fake_who_vaccine_ban_china.jpg":   {"label":"WHO禁止中国疫苗谣言-phone降级","expected_fake":True,"expected_bs_min":56,"reason":"手机拍屏，BS=95"},
+    "real_twitter_trump_iran_2026.png": {
+        "label": "特朗普声称与前总统谈过伊朗问题（Twitter截图，真实事件）",
+        "expected_fake": False,
+        "expected_bs_min": 0,
+        "reason": "特朗普确于2026年3月16日在肯尼迪中心午餐会上发表了该言论，截图时间戳'26年3月17日'应以当日日期换算，不得误判为2019年旧图",
+    },
 }
 
 
