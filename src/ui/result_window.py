@@ -733,11 +733,14 @@ class ResultWindow(QWidget):
         characters = self._result.get("characters", [])
         if characters and explain_type == "identify":
             from PyQt6.QtWidgets import QTableWidget, QTableWidgetItem, QHeaderView
-            table = QTableWidget(len(characters), 3)
-            table.setHorizontalHeaderLabels(["角色名", "作品", "备注"])
-            table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-            table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
-            table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            n = len(characters)
+            n_rows = math.ceil(n / 2)
+            table = QTableWidget(n_rows, 4)
+            table.setHorizontalHeaderLabels(["角色名", "作品", "角色名", "作品"])
+            for col in range(4):
+                mode = (QHeaderView.ResizeMode.ResizeToContents if col % 2 == 0
+                        else QHeaderView.ResizeMode.Stretch)
+                table.horizontalHeader().setSectionResizeMode(col, mode)
             table.verticalHeader().setVisible(False)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
             table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
@@ -748,14 +751,16 @@ class ResultWindow(QWidget):
                 "  border: none; padding: 4px 8px; }"
                 "QTableWidget::item { padding: 4px 8px; }"
             )
-            for i, ch in enumerate(characters):
-                table.setItem(i, 0, QTableWidgetItem(ch.get("name", "")))
-                table.setItem(i, 1, QTableWidgetItem(ch.get("work", "")))
-                table.setItem(i, 2, QTableWidgetItem(ch.get("note", "")))
+            for i in range(n_rows):
+                for col_pair, idx in enumerate([i * 2, i * 2 + 1]):
+                    if idx < n:
+                        ch = characters[idx]
+                        table.setItem(i, col_pair * 2,     QTableWidgetItem(ch.get("name", "")))
+                        table.setItem(i, col_pair * 2 + 1, QTableWidgetItem(ch.get("work", "")))
             HEADER_H = 28
             ROW_H = 26
-            max_visible = 10
-            table.setFixedHeight(HEADER_H + ROW_H * min(len(characters), max_visible))
+            max_visible = 13
+            table.setFixedHeight(HEADER_H + ROW_H * min(n_rows, max_visible))
             main_layout.addWidget(table)
 
         # ── 详细说明 ─────────────────────────────────────────────────────────────
