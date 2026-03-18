@@ -208,11 +208,18 @@ class ResultWindow(QWidget):
     _ref_image_loaded = pyqtSignal(object, object)      # (QLabel, QPixmap | None)
     _follow_up_received = pyqtSignal(str, str)           # (question, answer)
 
-    def __init__(self, result: dict, position: tuple | None = None, image=None):
+    def __init__(self, result: dict, position: tuple | None = None, images=None, image=None):
         super().__init__()
         self._result = result
         self._position = position
-        self._image = image
+        # images 优先；image 为旧调用兼容
+        if images is not None:
+            self._images: list = images if isinstance(images, list) else [images]
+        elif image is not None:
+            self._images = [image]
+        else:
+            self._images = []
+        self._image = self._images[0] if self._images else None
         self._drag_pos: QPoint | None = None
         self._follow_up_history: list[dict] = []
         self._chat_loading_bubble = None
@@ -238,7 +245,7 @@ class ResultWindow(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            w = min(1440, geo.width() - 80)
+            w = min(1200, geo.width() - 80)
             h = min(860, geo.height() - 80)
             self.resize(w, h)
         self.setMinimumWidth(480)
@@ -271,8 +278,10 @@ class ResultWindow(QWidget):
         else:
             self._init_analyze_ui()
 
-        # 追问面板（最右列，stretch=1 随窗口比例伸缩）
-        self._root_h.addWidget(self._build_chat_panel(mode or "analyze"), 1)
+        # 追问面板（默认折叠，点击💬展开；stretch=0 确保折叠时不占宽度）
+        self._chat_panel = self._build_chat_panel(mode or "analyze")
+        self._chat_panel.hide()
+        self._root_h.addWidget(self._chat_panel, 0)
 
     def _init_analyze_ui(self):
         """鉴屎模式 UI（原 _init_ui 内联代码）。"""
@@ -333,6 +342,7 @@ class ResultWindow(QWidget):
         stamp = StampWidget(bs_index)
         top_row.addWidget(stamp, alignment=Qt.AlignmentFlag.AlignTop)
 
+        top_row.addWidget(self._make_chat_toggle_btn(), alignment=Qt.AlignmentFlag.AlignTop)
         top_row.addWidget(self._make_close_btn(), alignment=Qt.AlignmentFlag.AlignTop)
 
         main_layout.addLayout(top_row)
@@ -343,27 +353,42 @@ class ResultWindow(QWidget):
         cols.setContentsMargins(0, 0, 0, 0)
 
         # ── 截图预览列（仅截图模式）────────────────────────────────────────────
-        if self._image is not None:
-            img = self._image.copy()
-            img.thumbnail((400, 800))
-            w, h = img.size
-            data = img.tobytes("raw", "RGB")
-            qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
-            pixmap = QPixmap.fromImage(qimg)
-            img_lbl = QLabel()
-            img_lbl.setPixmap(pixmap)
-            img_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-            img_lbl.setStyleSheet(
-                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14; padding: 4px;"
-            )
-            img_lbl.setScaledContents(False)
+        if self._images:
+            max_thumb = (380, 700) if len(self._images) == 1 else (190, 190)
             img_widget = QWidget()
             img_widget.setStyleSheet("background: transparent;")
             img_layout = QVBoxLayout(img_widget)
             img_layout.setContentsMargins(0, 0, 0, 0)
-            img_layout.addWidget(img_lbl)
+            img_layout.setSpacing(6)
+            for img_src in self._images:
+                img = img_src.copy()
+                img.thumbnail(max_thumb)
+                w, h = img.size
+                data = img.tobytes("raw", "RGB")
+                qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
+                pixmap = QPixmap.fromImage(qimg)
+                img_lbl = QLabel()
+                img_lbl.setPixmap(pixmap)
+                img_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+                img_lbl.setStyleSheet(
+                    "border: 1px solid #313244; border-radius: 6px; background: #0a0a14; padding: 4px;"
+                )
+                img_lbl.setScaledContents(False)
+                img_layout.addWidget(img_lbl)
             img_layout.addStretch()
-            cols.addWidget(img_widget, 33)
+            if len(self._images) > 1:
+                scroll = QScrollArea()
+                scroll.setWidget(img_widget)
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QFrame.Shape.NoFrame)
+                scroll.setStyleSheet(
+                    "QScrollArea { background: transparent; }"
+                    "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+                    "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; }"
+                )
+                cols.addWidget(scroll, 25)
+            else:
+                cols.addWidget(img_widget, 33)
 
         # 中列：核心信息
         left_col = QVBoxLayout()
@@ -587,6 +612,7 @@ class ResultWindow(QWidget):
             top_row.addWidget(lang_lbl)
 
         top_row.addStretch()
+        top_row.addWidget(self._make_chat_toggle_btn())
         top_row.addWidget(self._make_close_btn())
         main_layout.addLayout(top_row)
 
@@ -678,6 +704,7 @@ class ResultWindow(QWidget):
             top_row.addWidget(lang_lbl)
 
         top_row.addStretch()
+        top_row.addWidget(self._make_chat_toggle_btn())
         top_row.addWidget(self._make_close_btn())
         main_layout.addLayout(top_row)
 
@@ -829,6 +856,7 @@ class ResultWindow(QWidget):
         top_row.addWidget(conf_lbl)
 
         top_row.addStretch()
+        top_row.addWidget(self._make_chat_toggle_btn())
         top_row.addWidget(self._make_close_btn())
         main_layout.addLayout(top_row)
 
@@ -1081,6 +1109,26 @@ class ResultWindow(QWidget):
 
     # ── 追问面板 ───────────────────────────────────────────────────────────────
 
+    def _make_chat_toggle_btn(self) -> "QPushButton":
+        btn = QPushButton("💬")
+        btn.setFixedSize(28, 28)
+        btn.setStyleSheet(
+            "QPushButton { background: #1e1e2e; color: #6c7086; border-radius: 6px;"
+            " border: 1px solid #45475a; font-size: 14px; }"
+            "QPushButton:hover { color: #89b4fa; border-color: #89b4fa; }"
+        )
+        btn.clicked.connect(self._toggle_chat_panel)
+        return btn
+
+    def _toggle_chat_panel(self):
+        visible = self._chat_panel.isVisible()
+        self._chat_panel.setVisible(not visible)
+        delta = 408  # 400px chat + 8px spacing
+        if not visible:
+            self.resize(self.width() + delta, self.height())
+        else:
+            self.resize(self.width() - delta, self.height())
+
     _QUICK_ACTIONS: dict[str, list[str]] = {
         "analyze": ["求详细", "有没有更多证据", "帮我反驳"],
         "summary": ["更详细一点", "关键争议是什么"],
@@ -1091,8 +1139,7 @@ class ResultWindow(QWidget):
     def _build_chat_panel(self, mode: str) -> "QWidget":
         panel = QFrame()
         panel.setObjectName("chatPanel")
-        panel.setMinimumWidth(320)
-        panel.setMaximumWidth(520)
+        panel.setFixedWidth(400)
         panel.setStyleSheet(
             "#chatPanel { background: rgba(17,17,27,230); border-radius: 18px;"
             " border: 1px solid #313244; }"
@@ -1292,7 +1339,7 @@ class ResultWindow(QWidget):
         geo = screen.availableGeometry()
 
         # self.width() may not reflect final layout size before show(), use target width
-        target_w = min(1440, geo.width() - 80)
+        target_w = min(1200, geo.width() - 80)
         target_h = min(860, geo.height() - 80)
 
         if not self._position:

@@ -22,7 +22,7 @@ from ui.loading_overlay import LoadingOverlay
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
     trigger_unified = pyqtSignal()
-    show_result = pyqtSignal(dict, object, object, object)  # result_dict, position, loading_overlay, image
+    show_result = pyqtSignal(dict, object, object, object)  # result_dict, position, loading_overlay, images (list)
 
 
 class BullshitDetectorApp:
@@ -142,8 +142,8 @@ class BullshitDetectorApp:
         mode = dlg.selected_mode
         self._loading = LoadingOverlay(mode)
         self._loading.show()
-        # 各线程在启动时各自捕获 image/loading/position，避免并发覆盖
-        captured = {"image": image, "loading": self._loading, "position": position}
+        # 各线程在启动时各自捕获 images/loading/position，避免并发覆盖
+        captured = {"images": [image], "loading": self._loading, "position": position}
         if mode == "summarize":
             target = self._run_summary
         elif mode == "explain":
@@ -157,25 +157,25 @@ class BullshitDetectorApp:
     def _run_analysis(self, image_base64: str, captured: dict):
         result = analyze_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_summary(self, image_base64: str, captured: dict):
         from ai.analyzer import summarize_screenshot
         result = summarize_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_explain(self, image_base64: str, captured: dict):
         from ai.analyzer import explain_screenshot
         result = explain_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_source_find(self, image_base64: str, captured: dict):
         from ai.analyzer import source_find_screenshot
         result = source_find_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _start_unified_input(self):
         dlg = UnifiedInputDialog()
@@ -192,7 +192,6 @@ class BullshitDetectorApp:
         if images:
             from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot, source_find_screenshot
             b64_list = [image_to_base64(img) for img in images]
-            image = images[0]
             if mode == "summarize":
                 fn = lambda: summarize_screenshot(b64_list)
             elif mode == "explain":
@@ -202,7 +201,7 @@ class BullshitDetectorApp:
             else:
                 fn = lambda: analyze_screenshot(b64_list)
         else:
-            image = None
+            images = None
             text = dlg.get_text()
             if not text:
                 loading.close()
@@ -219,11 +218,11 @@ class BullshitDetectorApp:
             else:
                 fn = lambda: analyze_text(text)
         threading.Thread(
-            target=lambda: self.signals.show_result.emit(fn(), None, loading, image),
+            target=lambda: self.signals.show_result.emit(fn(), None, loading, images),
             daemon=True,
         ).start()
 
-    def _show_result(self, result: dict, position, loading=None, image=None):
+    def _show_result(self, result: dict, position, loading=None, images=None):
         if loading:
             loading.close()
         elif self._loading:
@@ -231,7 +230,7 @@ class BullshitDetectorApp:
             self._loading = None
         # 清理已关闭的旧窗口
         self._result_windows = [w for w in self._result_windows if w.isVisible()]
-        win = ResultWindow(result, position, image=image)
+        win = ResultWindow(result, position, images=images)
         # 有已打开的窗口时向右下偏移，避免完全重叠
         if self._result_windows and position is None:
             last = self._result_windows[-1]
