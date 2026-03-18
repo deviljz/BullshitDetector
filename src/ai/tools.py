@@ -1,6 +1,20 @@
-"""Function Calling 工具定义 + 搜索执行（支持 DuckDuckGo / Tavily）"""
+"""Function Calling 工具定义 + 搜索执行（支持 DuckDuckGo / Tavily / Google Vision）"""
 
 from typing import List
+
+# 求出处模式临时存放当前图片 base64（单用户桌面应用，无并发问题）
+_current_image_b64: str | None = None
+_last_vision_urls: list[str] = []
+
+
+def set_source_image(b64: str | None) -> None:
+    global _current_image_b64, _last_vision_urls
+    _current_image_b64 = b64
+    _last_vision_urls = []
+
+
+def get_last_vision_urls() -> list[str]:
+    return list(_last_vision_urls)
 
 
 def _search_ddg(query: str, max_results: int = 5) -> List[dict]:
@@ -44,6 +58,50 @@ class SearchProvider:
         return _search_ddg(query, max_results)
 
 
+def _reverse_image_search_vision(image_b64: str, api_key: str) -> str:
+    """调用 Google Vision WEB_DETECTION 以图搜图。"""
+    import requests as _req
+    payload = {
+        "requests": [{
+            "image": {"content": image_b64},
+            "features": [{"type": "WEB_DETECTION", "maxResults": 10}],
+        }]
+    }
+    try:
+        resp = _req.post(
+            f"https://vision.googleapis.com/v1/images:annotate?key={api_key}",
+            json=payload, timeout=30,
+        )
+        if resp.status_code != 200:
+            return f"Vision API 错误: {resp.status_code} {resp.text[:200]}"
+        det = resp.json()["responses"][0].get("webDetection", {})
+    except Exception as e:
+        return f"Vision API 请求失败: {e}"
+
+    lines = []
+    entities = det.get("webEntities", [])
+    if entities:
+        lines.append("【作品名候选】")
+        for e in entities[:6]:
+            if e.get("description"):
+                lines.append(f"  [{e.get('score', 0):.2f}] {e['description']}")
+    pages = det.get("pagesWithMatchingImages", [])
+    if pages:
+        lines.append(f"\n【匹配页面（{len(pages)} 条）】")
+        for p in pages[:5]:
+            title = p.get("pageTitle", "").strip()
+            url = p.get("url", "")
+            lines.append(f"  {title} — {url}" if title else f"  {url}")
+    similar = det.get("visuallySimilarImages", [])
+    if similar:
+        global _last_vision_urls
+        _last_vision_urls = [s["url"] for s in similar[:3] if s.get("url")]
+        lines.append(f"\n【相似图片 URL】")
+        for url in _last_vision_urls:
+            lines.append(f"  {url}")
+    return "\n".join(lines) if lines else "未找到匹配结果"
+
+
 # 注册给大模型的工具定义
 TOOLS = [
     {
@@ -65,6 +123,23 @@ TOOLS = [
     }
 ]
 
+# 求出处专用工具集（含以图搜图）
+SOURCE_TOOLS = [
+    TOOLS[0],  # web_search
+    {
+        "type": "function",
+        "function": {
+            "name": "reverse_image_search",
+            "description": (
+                "对当前图片进行以图搜图，识别作品来源。"
+                "返回匹配的网页标题和 URL、以及作品名候选列表。"
+                "在视觉识别不确定时优先调用此工具。"
+            ),
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+]
+
 # 全局搜索实例
 _search_provider = SearchProvider()
 
@@ -82,4 +157,14 @@ def execute_tool(name: str, arguments: dict) -> str:
         for i, r in enumerate(results, 1):
             lines.append(f"{i}. {r['title']}\n   {r['snippet']}\n   来源: {r['url']}")
         return "\n".join(lines)
+
+    if name == "reverse_image_search":
+        if not _current_image_b64:
+            return "当前没有图片可供搜索"
+        from config.manager import load as _load_cfg
+        api_key = _load_cfg().get("google_vision_api_key", "")
+        if not api_key or api_key.startswith("AIzaSy-YOUR"):
+            return "Google Vision API Key 未配置，请在 config.json 中填写 google_vision_api_key"
+        return _reverse_image_search_vision(_current_image_b64, api_key)
+
     return f"未知工具: {name}"

@@ -51,6 +51,16 @@ def explain_text(text: str) -> dict:
     return _load_provider().explain_article(text)
 
 
+def source_find_screenshot(images: list[str]) -> dict:
+    """识别截图来自哪部作品（动漫/游戏/电影等）。"""
+    return _load_provider().source_find(images)
+
+
+def source_find_text(text: str) -> dict:
+    """根据文字描述识别来自哪部作品。"""
+    return _load_provider().source_find_article(text)
+
+
 def analyze_image(image_path: str) -> dict:
     """从本地文件路径分析图片真实性（测试 / 批处理链路）。"""
     from PIL import Image

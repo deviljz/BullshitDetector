@@ -1,51 +1,48 @@
 """
-OpenAICompatibleProvider —— 覆盖所有兼容 OpenAI 接口的大模型。
-
-支持：Gemini（via Google AI Studio OpenAI endpoint）、DeepSeek、
-      Kimi（月之暗面）、通义千问、智谱 GLM、以及任何自定义 base_url。
+OpenAICompatibleProvider — covers all OpenAI-compatible models.
+Supports: Gemini, DeepSeek, Kimi, Qwen, GLM, and any custom base_url.
 """
 
 import json
 import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
+from typing import Callable
 
 from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_source_prompt
 from ai.json_utils import parse_json, normalize_result
-from ai.tools import TOOLS, execute_tool
+from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls
 
 MAX_TOOL_ROUNDS = 5
 
+_ANALYZE_RETRY_PROMPT = (
+    "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
+    "重要字段提醒（缺任何一个都视为格式错误）：\n"
+    "1. investigation_report 必须包含 content_nature 字段（内容性质：社交媒体截图/新闻报道/官方公文等）\n"
+    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
+    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+)
+_ANALYZE_ARTICLE_RETRY_PROMPT = (
+    "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
+    "重要字段提醒（缺任何一个都视为格式错误）：\n"
+    "1. investigation_report 必须包含 content_nature 字段（内容性质：自媒体公众号/科技媒体/官方新闻等）\n"
+    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
+    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+)
+_SOURCE_RETRY_PROMPT = "请根据以上搜索结果，严格按照系统提示定义的 JSON 格式输出最终识别结果。"
+
+
+def _analyze_schema_ok(parsed: dict) -> bool:
+    inv = parsed.get("investigation_report", {})
+    return bool(inv.get("content_nature")) and parsed.get("claim_verification") is not None
+
 
 class OpenAICompatibleProvider(BaseLLMProvider):
-    """
-    使用 openai Python SDK 的通用 Provider。
-    只需在初始化时传入 api_key / base_url / model 即可切换供应商。
-
-    常用配置示例：
-        # Gemini
-        OpenAICompatibleProvider(
-            api_key="AIza...",
-            base_url="https://generativelanguage.googleapis.com/v1beta/openai/",
-            model="gemini-2.0-flash",
-        )
-        # DeepSeek
-        OpenAICompatibleProvider(
-            api_key="sk-...",
-            base_url="https://api.deepseek.com",
-            model="deepseek-chat",
-        )
-        # Kimi
-        OpenAICompatibleProvider(
-            api_key="sk-...",
-            base_url="https://api.moonshot.cn/v1",
-            model="moonshot-v1-8k",
-        )
-    """
+    """Universal provider for OpenAI-compatible APIs."""
 
     def __init__(self, api_key: str, base_url: str | None = None, model: str = "gemini-2.0-flash", tone: str = "toxic"):
         if not api_key:
@@ -58,7 +55,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         self._tone = tone
 
     def _create_with_retry(self, max_retries: int = 5, **kwargs):
-        """带指数退避的 API 调用，处理限速和超时。"""
+        """Exponential backoff for rate limits and timeouts."""
         delay = 10
         for attempt in range(max_retries):
             try:
@@ -67,339 +64,221 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 if attempt == max_retries - 1:
                     raise
                 wait = delay * (2 ** attempt)
-                print(f"  ⏳ API 限速/超时，{wait}s 后重试 (attempt {attempt+1}/{max_retries}): {type(e).__name__}")
+                print(f"  ⏳ [{self._model}] {wait}s 后重试 ({attempt+1}/{max_retries}): {type(e).__name__}")
                 time.sleep(wait)
 
     def _exec_tools_parallel(self, tool_calls) -> list[tuple]:
-        """并行执行一轮中所有工具调用，返回有序列表 [(tool_call, func_name, func_args, result), ...]"""
+        """Execute all tool calls in a round in parallel."""
         def _run(tc):
-            func_name = tc.function.name
-            func_args = json.loads(tc.function.arguments)
-            print(f"  🔍 [{self._model}] 调用工具: {func_name}({func_args})")
-            return tc, func_name, func_args, execute_tool(func_name, func_args)
-
+            fn = tc.function.name
+            fa = json.loads(tc.function.arguments)
+            print(f"  🔍 [{self._model}] 调用工具: {fn}({fa})")
+            return tc, fn, fa, execute_tool(fn, fa)
         with ThreadPoolExecutor(max_workers=len(tool_calls)) as ex:
             return list(ex.map(_run, tool_calls))
 
-    def analyze(self, images: list[str]) -> dict:
-        """ReAct 循环：思考 → 工具调用 → 综合输出 JSON"""
-        try:
-            search_log: list[dict] = []
-            label = "这些截图" if len(images) > 1 else "这张截图"
-            user_content: list[dict] = [{"type": "text", "text": f"请分析{label}中的内容真实性："}]
-            for b64 in images:
-                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
-            messages: list[dict] = [
-                {"role": "system", "content": get_system_prompt(self._tone)},
-                {"role": "user", "content": user_content},
-            ]
+    @staticmethod
+    def _image_content(images: list[str], prefix: str) -> list[dict]:
+        """Build user content list for image input."""
+        content = [{"type": "text", "text": prefix}]
+        for b64 in images:
+            content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+        return content
 
-            total_input_tokens = 0
-            total_output_tokens = 0
-            choice = None
-            for round_idx in range(MAX_TOOL_ROUNDS):
-                # 第一轮强制调用工具（保证至少搜索一次），后续轮次模型自主决定
-                tool_choice = "required" if round_idx == 0 else "auto"
-                response = self._create_with_retry(
-                    model=self._model,
-                    messages=messages,
-                    tools=TOOLS,
-                    tool_choice=tool_choice,
-                    max_tokens=4096,
-                )
-                if response.usage:
-                    total_input_tokens += response.usage.prompt_tokens or 0
-                    total_output_tokens += response.usage.completion_tokens or 0
-                choice = response.choices[0]
+    def _tool_loop(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        retry_prompt: str | None = None,
+        schema_check: Callable[[dict], bool] | None = None,
+        tools: list | None = None,
+    ) -> tuple[str | None, list[dict], dict]:
+        """
+        Run multi-round tool loop (ReAct pattern).
+        First round forces tool_choice="required"; subsequent rounds are "auto".
+        Returns (content, search_log, token_usage).
+        """
+        _tools = tools if tools is not None else TOOLS
+        search_log: list[dict] = []
+        total_in = total_out = 0
+        choice = None
 
-                if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
-                    break
-
-                assistant_msg = choice.message
-                messages.append(assistant_msg)
-
-                for tc, func_name, func_args, tool_result in self._exec_tools_parallel(assistant_msg.tool_calls):
-                    search_log.append({
-                        "tool": func_name,
-                        "query": func_args.get("query", ""),
-                        "result_preview": tool_result[:200],
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": tool_result,
-                    })
-
-            # 检查是否需要强制请求 JSON 输出
-            content = choice.message.content if choice and choice.message else None
-            needs_retry = (
-                content is None
-                or (choice.finish_reason == "tool_calls")
-                or bool(choice.message.tool_calls)
+        for i in range(MAX_TOOL_ROUNDS):
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=messages,
+                tools=_tools,
+                tool_choice="required" if i == 0 else "auto",
+                max_tokens=max_tokens,
             )
-            if not needs_retry:
-                try:
-                    parsed = parse_json(content)
-                    # 字段完整性检查：核心新 schema 字段缺失时触发 retry
-                    inv = parsed.get("investigation_report", {})
-                    claims = parsed.get("claim_verification")
-                    if not inv.get("content_nature") or claims is None:
-                        needs_retry = True
-                except (json.JSONDecodeError, ValueError):
+            if resp.usage:
+                total_in += resp.usage.prompt_tokens or 0
+                total_out += resp.usage.completion_tokens or 0
+            choice = resp.choices[0]
+
+            if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
+                break
+
+            messages.append(choice.message)
+            for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls):
+                search_log.append({"tool": fn, "query": fa.get("query", ""), "result_preview": result[:200]})
+                messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+
+        content = choice.message.content if choice and choice.message else None
+        needs_retry = (
+            content is None
+            or bool(choice and choice.finish_reason == "tool_calls")
+            or bool(choice and choice.message.tool_calls)
+        )
+
+        if not needs_retry and schema_check and content:
+            try:
+                if not schema_check(parse_json(content)):
                     needs_retry = True
+            except (json.JSONDecodeError, ValueError):
+                needs_retry = True
 
-            if needs_retry:
-                # 确保最后的 assistant 消息在历史中
-                last = messages[-1]
-                if isinstance(last, dict) and last.get("role") != "assistant":
-                    if choice and choice.message and choice.message.content:
-                        messages.append(choice.message)
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
-                        "重要字段提醒（缺任何一个都视为格式错误）：\n"
-                        "1. investigation_report 必须包含 content_nature 字段（内容性质：社交媒体截图/新闻报道/官方公文等）\n"
-                        "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
-                        "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
-                    ),
-                })
-                response = self._create_with_retry(
-                    model=self._model,
-                    messages=messages,
-                    max_tokens=4096,
-                    response_format={"type": "json_object"},
-                )
-                if response.usage:
-                    total_input_tokens += response.usage.prompt_tokens or 0
-                    total_output_tokens += response.usage.completion_tokens or 0
-                content = response.choices[0].message.content
+        if needs_retry and retry_prompt:
+            last = messages[-1]
+            if isinstance(last, dict) and last.get("role") != "assistant":
+                if choice and choice.message and choice.message.content:
+                    messages.append(choice.message)
+            messages.append({"role": "user", "content": retry_prompt})
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=messages,
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
+            if resp.usage:
+                total_in += resp.usage.prompt_tokens or 0
+                total_out += resp.usage.completion_tokens or 0
+            content = resp.choices[0].message.content
 
-            result = parse_json(content)
-            result = normalize_result(result)
-            result["_search_log"] = search_log
-            result["_token_usage"] = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
+        return content, search_log, {"input_tokens": total_in, "output_tokens": total_out}
+
+    def _run_single(self, system_prompt: str, user_content, max_tokens: int, defaults: dict) -> dict:
+        """Single call without tool loop (for summarize/explain)."""
+        try:
+            content = user_content if isinstance(user_content, list) else [{"type": "text", "text": user_content}]
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=max_tokens,
+                response_format={"type": "json_object"},
+            )
+            result = parse_json(resp.choices[0].message.content)
+            for k, v in defaults.items():
+                result.setdefault(k, v)
             return result
+        except Exception as e:
+            return {**defaults, "error": f"{type(e).__name__}: {e}"}
 
-        except json.JSONDecodeError as e:
-            return _error_result(f"JSONDecodeError: {e}")
+    # ── 截图/文章鉴定 ─────────────────────────────────────────────────────────
+
+    def analyze(self, images: list[str]) -> dict:
+        try:
+            label = "这些截图" if len(images) > 1 else "这张截图"
+            messages = [
+                {"role": "system", "content": get_system_prompt(self._tone)},
+                {"role": "user", "content": self._image_content(images, f"请分析{label}中的内容真实性：")},
+            ]
+            content, search_log, tokens = self._tool_loop(messages, 4096, _ANALYZE_RETRY_PROMPT, _analyze_schema_ok)
+            result = normalize_result(parse_json(content))
+            result["_search_log"] = search_log
+            result["_token_usage"] = tokens
+            return result
         except Exception as e:
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
-
 
     def analyze_article(self, text: str) -> dict:
-        """文章鉴定：纯文字输入，针对数据来源/夸大/遗漏/意图进行分析"""
         try:
-            search_log: list[dict] = []
-            messages: list[dict] = [
+            messages = [
                 {"role": "system", "content": get_article_prompt(self._tone)},
-                {
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"},
-                    ],
-                },
+                {"role": "user", "content": [{"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"}]},
             ]
-
-            total_input_tokens = 0
-            total_output_tokens = 0
-            choice = None
-            for round_idx in range(MAX_TOOL_ROUNDS):
-                tool_choice = "required" if round_idx == 0 else "auto"
-                response = self._create_with_retry(
-                    model=self._model,
-                    messages=messages,
-                    tools=TOOLS,
-                    tool_choice=tool_choice,
-                    max_tokens=4096,
-                )
-                if response.usage:
-                    total_input_tokens += response.usage.prompt_tokens or 0
-                    total_output_tokens += response.usage.completion_tokens or 0
-                choice = response.choices[0]
-
-                if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
-                    break
-
-                assistant_msg = choice.message
-                messages.append(assistant_msg)
-
-                for tc, func_name, func_args, tool_result in self._exec_tools_parallel(assistant_msg.tool_calls):
-                    search_log.append({
-                        "tool": func_name,
-                        "query": func_args.get("query", ""),
-                        "result_preview": tool_result[:200],
-                    })
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc.id,
-                        "content": tool_result,
-                    })
-
-            content = choice.message.content if choice and choice.message else None
-            needs_retry = (
-                content is None
-                or (choice.finish_reason == "tool_calls")
-                or bool(choice.message.tool_calls)
-            )
-            if not needs_retry:
-                try:
-                    parsed = parse_json(content)
-                    inv = parsed.get("investigation_report", {})
-                    claims = parsed.get("claim_verification")
-                    if not inv.get("content_nature") or claims is None:
-                        needs_retry = True
-                except (json.JSONDecodeError, ValueError):
-                    needs_retry = True
-
-            if needs_retry:
-                last = messages[-1]
-                if isinstance(last, dict) and last.get("role") != "assistant":
-                    if choice and choice.message and choice.message.content:
-                        messages.append(choice.message)
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
-                        "重要字段提醒（缺任何一个都视为格式错误）：\n"
-                        "1. investigation_report 必须包含 content_nature 字段（内容性质：自媒体公众号/科技媒体/官方新闻等）\n"
-                        "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
-                        "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
-                    ),
-                })
-                response = self._create_with_retry(
-                    model=self._model,
-                    messages=messages,
-                    max_tokens=4096,
-                    response_format={"type": "json_object"},
-                )
-                if response.usage:
-                    total_input_tokens += response.usage.prompt_tokens or 0
-                    total_output_tokens += response.usage.completion_tokens or 0
-                content = response.choices[0].message.content
-
-            result = parse_json(content)
-            result = normalize_result(result)
+            content, search_log, tokens = self._tool_loop(messages, 4096, _ANALYZE_ARTICLE_RETRY_PROMPT, _analyze_schema_ok)
+            result = normalize_result(parse_json(content))
             result["_search_log"] = search_log
-            result["_token_usage"] = {"input_tokens": total_input_tokens, "output_tokens": total_output_tokens}
+            result["_token_usage"] = tokens
             return result
-
-        except json.JSONDecodeError as e:
-            return _error_result(f"JSONDecodeError: {e}")
         except Exception as e:
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
 
+    # ── 一键总结 ──────────────────────────────────────────────────────────────
+
+    _SUMMARY_DEFAULTS = {"_mode": "summary", "headline": "", "key_points": [], "original_language": "zh", "bias_note": ""}
 
     def summarize(self, images: list[str]) -> dict:
-        """截图一键总结（单次调用，无工具循环）"""
-        try:
-            user_content: list[dict] = [{"type": "text", "text": "请总结这些内容："}]
-            for b64 in images:
-                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
-            response = self._create_with_retry(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": get_summary_prompt()},
-                    {"role": "user", "content": user_content},
-                ],
-                max_tokens=1024,
-                response_format={"type": "json_object"},
-            )
-            import json
-            result = parse_json(response.choices[0].message.content)
-            result.setdefault("_mode", "summary")
-            result.setdefault("headline", "")
-            result.setdefault("key_points", [])
-            result.setdefault("original_language", "zh")
-            result.setdefault("bias_note", "")
-            return result
-        except Exception as e:
-            return {"_mode": "summary", "error": f"{type(e).__name__}: {e}",
-                    "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
+        return self._run_single(get_summary_prompt(), self._image_content(images, "请总结这些内容："), 1024, self._SUMMARY_DEFAULTS)
 
     def summarize_article(self, text: str) -> dict:
-        """文章一键总结（单次调用，无工具循环）"""
-        try:
-            response = self._create_with_retry(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": get_summary_prompt()},
-                    {"role": "user", "content": f"请总结以下内容：\n\n{text[:8000]}"},
-                ],
-                max_tokens=1024,
-                response_format={"type": "json_object"},
-            )
-            import json
-            result = parse_json(response.choices[0].message.content)
-            result.setdefault("_mode", "summary")
-            result.setdefault("headline", "")
-            result.setdefault("key_points", [])
-            result.setdefault("original_language", "zh")
-            result.setdefault("bias_note", "")
-            return result
-        except Exception as e:
-            return {"_mode": "summary", "error": f"{type(e).__name__}: {e}",
-                    "headline": "总结失败", "key_points": [], "original_language": "zh", "bias_note": ""}
+        return self._run_single(get_summary_prompt(), f"请总结以下内容：\n\n{text[:8000]}", 1024, self._SUMMARY_DEFAULTS)
 
+    # ── 一键解释 ──────────────────────────────────────────────────────────────
+
+    _EXPLAIN_DEFAULTS = {
+        "_mode": "explain", "type": "concept", "subject": "", "short_answer": "",
+        "characters": [], "detail": "", "origin": "", "usage": "", "original_language": "zh",
+    }
 
     def explain(self, images: list[str]) -> dict:
-        """截图内容一键解释（单次调用，无工具循环）"""
-        try:
-            user_content: list[dict] = [{"type": "text", "text": "请解释这些内容："}]
-            for b64 in images:
-                user_content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
-            response = self._create_with_retry(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": get_explain_prompt()},
-                    {"role": "user", "content": user_content},
-                ],
-                max_tokens=4096,
-                response_format={"type": "json_object"},
-            )
-            result = parse_json(response.choices[0].message.content)
-            result.setdefault("_mode", "explain")
-            result.setdefault("type", "concept")
-            result.setdefault("subject", "")
-            result.setdefault("short_answer", "")
-            result.setdefault("characters", [])
-            result.setdefault("detail", "")
-            result.setdefault("origin", "")
-            result.setdefault("usage", "")
-            result.setdefault("original_language", "zh")
-            return result
-        except Exception as e:
-            return {"_mode": "explain", "error": f"{type(e).__name__}: {e}",
-                    "type": "concept", "subject": "解释失败", "short_answer": "解释失败",
-                    "characters": [], "detail": "", "origin": "", "usage": "", "original_language": "zh"}
+        return self._run_single(get_explain_prompt(), self._image_content(images, "请解释这些内容："), 4096, self._EXPLAIN_DEFAULTS)
 
     def explain_article(self, text: str) -> dict:
-        """文章/文字内容一键解释（单次调用，无工具循环）"""
+        return self._run_single(get_explain_prompt(), f"请解释以下内容：\n\n{text[:8000]}", 4096, self._EXPLAIN_DEFAULTS)
+
+    # ── 求出处 ────────────────────────────────────────────────────────────────
+
+    _SOURCE_DEFAULTS = {
+        "_mode": "source", "found": False, "title": "", "original_title": "",
+        "media_type": "other", "year": "", "studio": "", "episode": "",
+        "episode_title": "", "scene": "", "characters": [], "confidence": "low", "note": "",
+        "reference_image_urls": [],
+    }
+
+    def source_find(self, images: list[str]) -> dict:
         try:
-            response = self._create_with_retry(
-                model=self._model,
-                messages=[
-                    {"role": "system", "content": get_explain_prompt()},
-                    {"role": "user", "content": f"请解释以下内容：\n\n{text[:8000]}"},
-                ],
-                max_tokens=4096,
-                response_format={"type": "json_object"},
+            set_source_image(images[0] if images else None)
+            messages = [
+                {"role": "system", "content": get_source_prompt()},
+                {"role": "user", "content": self._image_content(images, "请识别这张截图来自哪部作品：")},
+            ]
+            content, search_log, tokens = self._tool_loop(
+                messages, 2048, _SOURCE_RETRY_PROMPT, tools=SOURCE_TOOLS
             )
-            result = parse_json(response.choices[0].message.content)
-            result.setdefault("_mode", "explain")
-            result.setdefault("type", "concept")
-            result.setdefault("subject", "")
-            result.setdefault("short_answer", "")
-            result.setdefault("characters", [])
-            result.setdefault("detail", "")
-            result.setdefault("origin", "")
-            result.setdefault("usage", "")
-            result.setdefault("original_language", "zh")
+            result = parse_json(content)
+            for k, v in self._SOURCE_DEFAULTS.items():
+                result.setdefault(k, v)
+            # 若 AI 没有填入参考图，自动注入 Vision API 返回的相似图片
+            if not result.get("reference_image_urls"):
+                result["reference_image_urls"] = get_last_vision_urls()
+            result["_search_log"] = search_log
+            result["_token_usage"] = tokens
             return result
         except Exception as e:
-            return {"_mode": "explain", "error": f"{type(e).__name__}: {e}",
-                    "type": "concept", "subject": "解释失败", "short_answer": "解释失败",
-                    "characters": [], "detail": "", "origin": "", "usage": "", "original_language": "zh"}
+            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}
+        finally:
+            set_source_image(None)
+
+    def source_find_article(self, text: str) -> dict:
+        try:
+            messages = [
+                {"role": "system", "content": get_source_prompt()},
+                {"role": "user", "content": [{"type": "text", "text": f"请根据以下描述识别来自哪部作品：\n\n{text[:4000]}"}]},
+            ]
+            content, search_log, tokens = self._tool_loop(messages, 2048, _SOURCE_RETRY_PROMPT)
+            result = parse_json(content)
+            for k, v in self._SOURCE_DEFAULTS.items():
+                result.setdefault(k, v)
+            result["_search_log"] = search_log
+            result["_token_usage"] = tokens
+            return result
+        except Exception as e:
+            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}
 
 
 def _error_result(error_msg: str) -> dict:

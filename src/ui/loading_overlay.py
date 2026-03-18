@@ -7,6 +7,7 @@ _MODE_CONFIG = {
     "analyze":  ("👃", "正在闻屎中",  "#cba6f7"),
     "summarize": ("📝", "正在总结中",  "#a6e3a1"),
     "explain":  ("❓", "正在解释中",  "#89b4fa"),
+    "source":   ("🎬", "正在查找出处...", "#fab387"),
 }
 
 

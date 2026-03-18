@@ -1,4 +1,6 @@
 import math
+import threading
+from urllib.request import urlopen, Request as URLRequest
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -10,8 +12,9 @@ from PyQt6.QtWidgets import (
     QSizeGrip,
     QFrame,
     QSizePolicy,
+    QScrollArea,
 )
-from PyQt6.QtCore import Qt, QPoint, QRect, QSize
+from PyQt6.QtCore import Qt, QPoint, QRect, QSize, pyqtSignal
 from PyQt6.QtGui import (
     QFont,
     QColor,
@@ -142,7 +145,7 @@ class StampWidget(QWidget):
 
 # ── 可折叠区块 ─────────────────────────────────────────────────────────────────
 class CollapsibleSection(QWidget):
-    def __init__(self, title: str, collapsed: bool = False, parent=None):
+    def __init__(self, title: str, collapsed: bool = False, max_content_height: int = 0, parent=None):
         super().__init__(parent)
         self._title = title
         layout = QVBoxLayout(self)
@@ -163,15 +166,32 @@ class CollapsibleSection(QWidget):
         layout.addWidget(self._toggle_btn)
 
         self._content = QWidget()
-        self._content.setVisible(expanded)
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(12, 4, 0, 4)
         self._content_layout.setSpacing(3)
-        layout.addWidget(self._content)
+
+        if max_content_height > 0:
+            self._wrap: QScrollArea | None = QScrollArea()
+            self._wrap.setWidget(self._content)
+            self._wrap.setWidgetResizable(True)
+            self._wrap.setMaximumHeight(max_content_height)
+            self._wrap.setFrameShape(QFrame.Shape.NoFrame)
+            self._wrap.setStyleSheet(
+                "QScrollArea { background: transparent; }"
+                "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+                "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; }"
+            )
+            self._wrap.setVisible(expanded)
+            layout.addWidget(self._wrap)
+        else:
+            self._wrap = None
+            self._content.setVisible(expanded)
+            layout.addWidget(self._content)
 
     def _on_toggle(self, checked: bool):
         self._toggle_btn.setText(f"{'▼' if checked else '▶'} {self._title}")
-        self._content.setVisible(checked)
+        target = self._wrap if self._wrap is not None else self._content
+        target.setVisible(checked)
 
     def add_line(self, text: str, color: str = "#a6adc8"):
         lbl = QLabel(text)
@@ -184,14 +204,18 @@ class CollapsibleSection(QWidget):
 class ResultWindow(QWidget):
     """赛博朋克风格无边框结果卡片。"""
 
+    _ref_image_loaded = pyqtSignal(object, object)  # (QLabel, QPixmap | None)
+
     def __init__(self, result: dict, position: tuple | None = None, image=None):
         super().__init__()
         self._result = result
         self._position = position
         self._image = image
         self._drag_pos: QPoint | None = None
+        self._ref_image_loaded.connect(self._on_ref_image_loaded)
         self._init_window()
         self._init_ui()
+        self._make_labels_selectable()
         self._position_window()  # show() 前完成定位，避免窗口闪烁到默认位置
 
     # ── 窗口属性 ───────────────────────────────────────────────────────────────
@@ -216,6 +240,14 @@ class ResultWindow(QWidget):
         self.setMinimumHeight(360)
         self.setWindowOpacity(0.0)  # show() 前不可见，showEvent 再设为 1
 
+    def _make_labels_selectable(self):
+        """让所有 QLabel 文字可鼠标选中复制。"""
+        flags = Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        for label in self.findChildren(QLabel):
+            if label.text():
+                label.setTextInteractionFlags(flags)
+                label.setCursor(Qt.CursorShape.IBeamCursor)
+
     # ── UI 构建 ────────────────────────────────────────────────────────────────
     def _init_ui(self):
         if self._result.get("_mode") == "summary":
@@ -223,6 +255,9 @@ class ResultWindow(QWidget):
             return
         if self._result.get("_mode") == "explain":
             self._init_explain_ui()
+            return
+        if self._result.get("_mode") == "source":
+            self._init_source_ui()
             return
 
         # 新 schema 解包
@@ -285,14 +320,7 @@ class ResultWindow(QWidget):
         stamp = StampWidget(bs_index)
         top_row.addWidget(stamp, alignment=Qt.AlignmentFlag.AlignTop)
 
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
-            "QPushButton:hover { background: #ff5555; color: #fff; }"
-        )
-        close_btn.clicked.connect(self.close)
-        top_row.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignTop)
+        top_row.addWidget(self._make_close_btn(), alignment=Qt.AlignmentFlag.AlignTop)
 
         main_layout.addLayout(top_row)
 
@@ -476,18 +504,18 @@ class ResultWindow(QWidget):
             right_col.addWidget(inv_sec)
 
         # ── 右列：搜索过程（默认折叠，标题显示次数）──────────────────────────
-        search_log: list = self._result.get("_search_log", [])
-        if search_log:
-            search_sec = CollapsibleSection(f"搜索过程（{len(search_log)} 次）", collapsed=True)
-            for entry in search_log:
-                query = entry.get("query", "")
-                preview = entry.get("result_preview", "").strip()
-                if len(preview) > 120:
-                    preview = preview[:120] + "…"
-                search_sec.add_line(f"🔍 {query}", "#89b4fa")
-                if preview:
-                    search_sec.add_line(f"    → {preview}", "#585b70")
-            right_col.addWidget(search_sec)
+        _search_log_temp: list = self._result.get("_search_log", [])
+        if _search_log_temp:
+            _sl_sec = CollapsibleSection(f"搜索过程（{len(_search_log_temp)} 次）", collapsed=True, max_content_height=220)
+            for _sl_entry in _search_log_temp:
+                _sl_query = _sl_entry.get("query", "")
+                _sl_preview = _sl_entry.get("result_preview", "").strip()
+                if len(_sl_preview) > 120:
+                    _sl_preview = _sl_preview[:120] + "…"
+                _sl_sec.add_line(f"🔍 {_sl_query}", "#89b4fa")
+                if _sl_preview:
+                    _sl_sec.add_line(f"    → {_sl_preview}", "#585b70")
+            right_col.addWidget(_sl_sec)
 
         right_col.addStretch()
 
@@ -529,23 +557,7 @@ class ResultWindow(QWidget):
         orig_lang = self._result.get("original_language", "zh")
         error = self._result.get("error")
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        card = QFrame()
-        card.setObjectName("card")
-        card.setStyleSheet(
-            "#card {"
-            "  background: rgba(24, 24, 37, 242);"
-            "  border-radius: 18px;"
-            "  border: 1px solid #45475a;"
-            "}"
-        )
-        outer.addWidget(card)
-
-        main_layout = QVBoxLayout(card)
-        main_layout.setContentsMargins(28, 22, 28, 22)
-        main_layout.setSpacing(16)
+        main_layout = self._make_card()
 
         # ── 顶栏：标题 + 语言标签 + 关闭 ───────────────────────────────────────
         top_row = QHBoxLayout()
@@ -562,14 +574,7 @@ class ResultWindow(QWidget):
             top_row.addWidget(lang_lbl)
 
         top_row.addStretch()
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
-            "QPushButton:hover { background: #ff5555; color: #fff; }"
-        )
-        close_btn.clicked.connect(self.close)
-        top_row.addWidget(close_btn)
+        top_row.addWidget(self._make_close_btn())
         main_layout.addLayout(top_row)
 
         # ── 分隔线 ──────────────────────────────────────────────────────────────
@@ -619,22 +624,7 @@ class ResultWindow(QWidget):
             main_layout.addWidget(bias_lbl)
 
         main_layout.addStretch()
-
-        # ── 截图预览（若有）────────────────────────────────────────────────────
-        if self._image is not None:
-            img = self._image.copy()
-            img.thumbnail((320, 240))
-            w, h = img.size
-            data = img.tobytes("raw", "RGB")
-            from PyQt6.QtGui import QImage, QPixmap
-            qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
-            img_lbl = QLabel()
-            img_lbl.setPixmap(QPixmap.fromImage(qimg))
-            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            img_lbl.setStyleSheet(
-                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14;"
-            )
-            main_layout.addWidget(img_lbl)
+        self._append_image_preview(main_layout)
 
     def _init_explain_ui(self):
         _TYPE_LABEL = {
@@ -651,23 +641,7 @@ class ResultWindow(QWidget):
         orig_lang = self._result.get("original_language", "zh")
         error = self._result.get("error")
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-
-        card = QFrame()
-        card.setObjectName("card")
-        card.setStyleSheet(
-            "#card {"
-            "  background: rgba(24, 24, 37, 242);"
-            "  border-radius: 18px;"
-            "  border: 1px solid #45475a;"
-            "}"
-        )
-        outer.addWidget(card)
-
-        main_layout = QVBoxLayout(card)
-        main_layout.setContentsMargins(28, 22, 28, 22)
-        main_layout.setSpacing(16)
+        main_layout = self._make_card()
 
         # ── 顶栏：标题 + 类型标签 + 语言标签 + 关闭 ────────────────────────────
         top_row = QHBoxLayout()
@@ -691,14 +665,7 @@ class ResultWindow(QWidget):
             top_row.addWidget(lang_lbl)
 
         top_row.addStretch()
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
-            "QPushButton:hover { background: #ff5555; color: #fff; }"
-        )
-        close_btn.clicked.connect(self.close)
-        top_row.addWidget(close_btn)
+        top_row.addWidget(self._make_close_btn())
         main_layout.addLayout(top_row)
 
         # ── 分隔线 ───────────────────────────────────────────────────────────────
@@ -796,21 +763,311 @@ class ResultWindow(QWidget):
             main_layout.addWidget(usage_lbl)
 
         main_layout.addStretch()
+        self._append_image_preview(main_layout)
 
-        # ── 截图预览（若有）─────────────────────────────────────────────────────
-        if self._image is not None:
-            img = self._image.copy()
-            img.thumbnail((320, 240))
+    def _init_source_ui(self):
+        _MEDIA_TYPE_ZH = {
+            "anime": "动画", "manga": "漫画", "movie": "电影",
+            "game": "游戏", "tv": "剧集", "other": "其他",
+        }
+        _CONFIDENCE_CONFIG = {
+            "high":   ("✓ 高置信", "#a6e3a1", "#1a2e1e"),
+            "medium": ("~ 中置信", "#f9e2af", "#2a2018"),
+            "low":    ("? 低置信", "#fab387", "#2e1e0e"),
+        }
+
+        found = self._result.get("found", False)
+        title = self._result.get("title", "")
+        original_title = self._result.get("original_title", "")
+        media_type = self._result.get("media_type", "other")
+        year = self._result.get("year", "")
+        studio = self._result.get("studio", "")
+        episode = self._result.get("episode", "")
+        episode_title = self._result.get("episode_title", "")
+        scene = self._result.get("scene", "")
+        characters: list = self._result.get("characters", [])
+        confidence = self._result.get("confidence", "low")
+        note = self._result.get("note", "")
+        error = self._result.get("error")
+        search_log: list = self._result.get("_search_log", [])
+
+        main_layout = self._make_card(spacing=14)
+
+        # ── 顶栏 ────────────────────────────────────────────────────────────────
+        top_row = QHBoxLayout()
+        title_lbl = QLabel("🎬 求出处")
+        title_lbl.setStyleSheet("color: #fab387; font-size: 16px; font-weight: bold;")
+        top_row.addWidget(title_lbl)
+
+        media_zh = _MEDIA_TYPE_ZH.get(media_type, "其他")
+        media_lbl = QLabel(media_zh)
+        media_lbl.setStyleSheet(
+            "color: #fab387; font-size: 11px; background: #2e1e0e;"
+            " border: 1px solid #fab387; border-radius: 4px; padding: 2px 8px;"
+        )
+        top_row.addWidget(media_lbl)
+
+        conf_text, conf_color, conf_bg = _CONFIDENCE_CONFIG.get(confidence, _CONFIDENCE_CONFIG["low"])
+        conf_lbl = QLabel(conf_text)
+        conf_lbl.setStyleSheet(
+            f"color: {conf_color}; font-size: 11px; background: {conf_bg};"
+            f" border: 1px solid {conf_color}; border-radius: 4px; padding: 2px 8px;"
+        )
+        top_row.addWidget(conf_lbl)
+
+        top_row.addStretch()
+        top_row.addWidget(self._make_close_btn())
+        main_layout.addLayout(top_row)
+
+        # ── 分隔线 ───────────────────────────────────────────────────────────────
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        main_layout.addWidget(sep)
+
+        if error or not found:
+            # 未能识别
+            err_lbl = QLabel(f"💥 {error or '未能识别该截图来自哪部作品'}")
+            err_lbl.setWordWrap(True)
+            err_lbl.setStyleSheet("color: #f38ba8; font-size: 14px; padding: 8px 0;")
+            main_layout.addWidget(err_lbl)
+            if scene and scene != "（无法识别）":
+                scene_lbl = QLabel(scene)
+                scene_lbl.setWordWrap(True)
+                scene_lbl.setStyleSheet(
+                    "color: #cdd6f4; font-size: 13px;"
+                    " background: rgba(69,71,90,120);"
+                    " border-radius: 8px; padding: 10px 12px;"
+                )
+                main_layout.addWidget(scene_lbl)
+            if note:
+                note_lbl = QLabel(note)
+                note_lbl.setWordWrap(True)
+                note_lbl.setStyleSheet(
+                    "color: #f9e2af; font-size: 12px;"
+                    " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
+                )
+                main_layout.addWidget(note_lbl)
+        else:
+            # ── 作品标题 ────────────────────────────────────────────────────────
+            title_main = QLabel(title or "（未知作品）")
+            title_main.setWordWrap(True)
+            title_main.setStyleSheet(
+                "color: #fab387; font-size: 18px; font-weight: bold; padding: 2px 0;"
+            )
+            main_layout.addWidget(title_main)
+
+            if original_title and original_title != title:
+                orig_lbl = QLabel(original_title)
+                orig_lbl.setWordWrap(True)
+                orig_lbl.setStyleSheet("color: #6c7086; font-size: 13px; padding: 0;")
+                main_layout.addWidget(orig_lbl)
+
+            # ── 年份 · 制作公司 ─────────────────────────────────────────────────
+            meta_parts = []
+            if year:
+                meta_parts.append(year)
+            if studio:
+                meta_parts.append(studio)
+            if meta_parts:
+                meta_lbl = QLabel("  ·  ".join(meta_parts))
+                meta_lbl.setStyleSheet("color: #6c7086; font-size: 12px; padding: 2px 0;")
+                main_layout.addWidget(meta_lbl)
+
+            # ── 集数 + 集名 ─────────────────────────────────────────────────────
+            ep_parts = []
+            if episode:
+                ep_parts.append(episode)
+            if episode_title:
+                ep_parts.append(f"「{episode_title}」")
+            if ep_parts:
+                ep_lbl = QLabel("  ".join(ep_parts))
+                ep_lbl.setWordWrap(True)
+                ep_lbl.setStyleSheet("color: #89b4fa; font-size: 13px; padding: 2px 0;")
+                main_layout.addWidget(ep_lbl)
+
+            # ── 场景描述 ────────────────────────────────────────────────────────
+            if scene and scene != "（无法识别）":
+                scene_lbl = QLabel(scene)
+                scene_lbl.setWordWrap(True)
+                scene_lbl.setStyleSheet(
+                    "color: #cdd6f4; font-size: 13px;"
+                    " background: rgba(69,71,90,120);"
+                    " border-radius: 8px; padding: 10px 12px;"
+                )
+                main_layout.addWidget(scene_lbl)
+
+            # ── 出现角色 ────────────────────────────────────────────────────────
+            if characters:
+                chars_lbl = QLabel(f"出现角色：{', '.join(characters)}")
+                chars_lbl.setWordWrap(True)
+                chars_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 2px 0;")
+                main_layout.addWidget(chars_lbl)
+
+            # ── note 黄色块 ─────────────────────────────────────────────────────
+            if note:
+                note_lbl = QLabel(note)
+                note_lbl.setWordWrap(True)
+                note_lbl.setStyleSheet(
+                    "color: #f9e2af; font-size: 12px;"
+                    " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
+                )
+                main_layout.addWidget(note_lbl)
+
+        self._append_search_log(main_layout, search_log)
+
+        main_layout.addStretch()
+
+        # 对比图区域：输入截图 + AI 搜索到的参考图并排
+        ref_urls = self._result.get("reference_image_urls", [])
+        if found or ref_urls:
+            self._load_ref_images(main_layout, ref_urls, self._image)
+
+    def _on_ref_image_loaded(self, label, pixmap):
+        """Slot: update reference image label from background thread."""
+        if pixmap is not None:
+            label.setPixmap(pixmap)
+            label.setText("")
+        else:
+            label.hide()
+
+    def _load_ref_images(self, layout: "QVBoxLayout", urls: list, input_image=None):
+        """
+        Build a comparison strip: [输入截图] | [参考图1] | [参考图2] ...
+        Reference images are fetched asynchronously.
+        """
+        if not urls and input_image is None:
+            return
+
+        strip_label = QLabel("对比参考")
+        strip_label.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold; padding: 4px 0 2px 0;")
+        layout.addWidget(strip_label)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.setContentsMargins(0, 0, 0, 0)
+
+        # 输入截图缩略图
+        if input_image is not None:
+            img = input_image.copy()
+            img.thumbnail((160, 120))
             w, h = img.size
             data = img.tobytes("raw", "RGB")
             qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
-            img_lbl = QLabel()
-            img_lbl.setPixmap(QPixmap.fromImage(qimg))
-            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            img_lbl.setStyleSheet(
-                "border: 1px solid #313244; border-radius: 6px; background: #0a0a14;"
+            px = QPixmap.fromImage(qimg)
+            in_lbl = QLabel()
+            in_lbl.setPixmap(px)
+            in_lbl.setFixedSize(160, 120)
+            in_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            in_lbl.setStyleSheet(
+                "border: 2px solid #fab387; border-radius: 4px; background: #0a0a14;"
             )
-            main_layout.addWidget(img_lbl)
+            in_lbl.setToolTip("输入截图")
+            row.addWidget(in_lbl)
+
+        # 参考图占位 + 异步加载
+        ref_labels = []
+        for url in urls[:3]:
+            lbl = QLabel("加载中…")
+            lbl.setFixedSize(160, 120)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            lbl.setStyleSheet(
+                "border: 1px solid #45475a; border-radius: 4px; background: #181825;"
+                " color: #585b70; font-size: 11px;"
+            )
+            lbl.setToolTip(url)
+            row.addWidget(lbl)
+            ref_labels.append((url, lbl))
+
+        row.addStretch()
+        container = QWidget()
+        container.setStyleSheet("background: transparent;")
+        container.setLayout(row)
+        layout.addWidget(container)
+
+        if not ref_labels:
+            return
+
+        def _load_one(url_lbl):
+            url, lbl = url_lbl
+            try:
+                req = URLRequest(url, headers={"User-Agent": "Mozilla/5.0"})
+                data = urlopen(req, timeout=8).read()
+                qimg = QImage()
+                if qimg.loadFromData(data) and not qimg.isNull():
+                    px = QPixmap.fromImage(qimg).scaled(
+                        160, 120,
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation,
+                    )
+                    self._ref_image_loaded.emit(lbl, px)
+                else:
+                    self._ref_image_loaded.emit(lbl, None)
+            except Exception:
+                self._ref_image_loaded.emit(lbl, None)
+
+        def _fetch():
+            from concurrent.futures import ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=len(ref_labels)) as ex:
+                list(ex.map(_load_one, ref_labels))
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _make_card(self, h_margin: int = 28, v_margin: int = 22, spacing: int = 16) -> "QVBoxLayout":
+        """Create standard card frame. Returns inner main_layout."""
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        card = QFrame()
+        card.setObjectName("card")
+        card.setStyleSheet(
+            "#card { background: rgba(24,24,37,242); border-radius: 18px; border: 1px solid #45475a; }"
+        )
+        outer.addWidget(card)
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
+        inner.setSpacing(spacing)
+        return inner
+
+    def _make_close_btn(self) -> "QPushButton":
+        """Create standard ✕ close button."""
+        btn = QPushButton("✕")
+        btn.setFixedSize(28, 28)
+        btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #6c7086; border-radius: 14px; font-size: 13px; }"
+            "QPushButton:hover { background: #ff5555; color: #fff; }"
+        )
+        btn.clicked.connect(self.close)
+        return btn
+
+    def _append_image_preview(self, layout: "QVBoxLayout"):
+        """Append screenshot thumbnail to layout if image is available."""
+        if self._image is None:
+            return
+        img = self._image.copy()
+        img.thumbnail((320, 240))
+        w, h = img.size
+        data = img.tobytes("raw", "RGB")
+        qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
+        lbl = QLabel()
+        lbl.setPixmap(QPixmap.fromImage(qimg))
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl.setStyleSheet("border: 1px solid #313244; border-radius: 6px; background: #0a0a14;")
+        layout.addWidget(lbl)
+
+    def _append_search_log(self, layout: "QVBoxLayout", search_log: list):
+        """Append collapsible search log section to layout."""
+        if not search_log:
+            return
+        sec = CollapsibleSection(f"搜索过程（{len(search_log)} 次）", collapsed=True, max_content_height=220)
+        for entry in search_log:
+            query = entry.get("query", "")
+            preview = entry.get("result_preview", "").strip()
+            if len(preview) > 120:
+                preview = preview[:120] + "…"
+            sec.add_line(f"🔍 {query}", "#89b4fa")
+            if preview:
+                sec.add_line(f"    → {preview}", "#585b70")
+        layout.addWidget(sec)
 
     def _position_window(self):
         screen = QApplication.primaryScreen()

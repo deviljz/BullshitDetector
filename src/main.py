@@ -15,7 +15,6 @@ from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
 from ai.analyzer import analyze_screenshot, analyze_text
 from ui.unified_input_dialog import UnifiedInputDialog
-from ui.screenshot_confirm_dialog import ScreenshotConfirmDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
 
@@ -23,7 +22,7 @@ from ui.loading_overlay import LoadingOverlay
 class SignalBridge(QObject):
     trigger_capture = pyqtSignal()
     trigger_unified = pyqtSignal()
-    show_result = pyqtSignal(dict, object, object)  # result_dict, position, loading_overlay
+    show_result = pyqtSignal(dict, object, object, object)  # result_dict, position, loading_overlay, image
 
 
 class BullshitDetectorApp:
@@ -131,45 +130,52 @@ class BullshitDetectorApp:
         self._overlay = ScreenshotOverlay(self._on_screenshot_taken, on_cancel=self._on_capture_cancelled)
 
     def _on_screenshot_taken(self, image, position=None):
-        dlg = ScreenshotConfirmDialog(image)
+        from ui.unified_input_dialog import UnifiedInputDialog
+        dlg = UnifiedInputDialog(preloaded_image=image)
         if position:
             dlg.move(position[0], max(0, position[1] - 20))
         if not dlg.exec():
             self._busy = False
-            return  # 用户取消，不消耗 token
+            return
         self._capture_position = position
-        self._capture_image = image
         b64 = image_to_base64(image)
         mode = dlg.selected_mode
         self._loading = LoadingOverlay(mode)
         self._loading.show()
+        # 各线程在启动时各自捕获 image/loading/position，避免并发覆盖
+        captured = {"image": image, "loading": self._loading, "position": position}
         if mode == "summarize":
             target = self._run_summary
         elif mode == "explain":
             target = self._run_explain
+        elif mode == "source":
+            target = self._run_source_find
         else:
             target = self._run_analysis
-        threading.Thread(target=target, args=(b64,), daemon=True).start()
+        threading.Thread(target=target, args=(b64, captured), daemon=True).start()
 
-    def _run_analysis(self, image_base64: str):
-        loading = self._loading
+    def _run_analysis(self, image_base64: str, captured: dict):
         result = analyze_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, self._capture_position, loading)
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
 
-    def _run_summary(self, image_base64: str):
+    def _run_summary(self, image_base64: str, captured: dict):
         from ai.analyzer import summarize_screenshot
-        loading = self._loading
         result = summarize_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, self._capture_position, loading)
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
 
-    def _run_explain(self, image_base64: str):
+    def _run_explain(self, image_base64: str, captured: dict):
         from ai.analyzer import explain_screenshot
-        loading = self._loading
         result = explain_screenshot([image_base64])
         self._busy = False
-        self.signals.show_result.emit(result, self._capture_position, loading)
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
+
+    def _run_source_find(self, image_base64: str, captured: dict):
+        from ai.analyzer import source_find_screenshot
+        result = source_find_screenshot([image_base64])
+        self._busy = False
+        self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["image"])
 
     def _start_unified_input(self):
         dlg = UnifiedInputDialog()
@@ -184,16 +190,19 @@ class BullshitDetectorApp:
         loading = LoadingOverlay(mode)
         loading.show()
         if images:
-            from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot
+            from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot, source_find_screenshot
             b64_list = [image_to_base64(img) for img in images]
-            self._capture_image = images[0]
+            image = images[0]
             if mode == "summarize":
                 fn = lambda: summarize_screenshot(b64_list)
             elif mode == "explain":
                 fn = lambda: explain_screenshot(b64_list)
+            elif mode == "source":
+                fn = lambda: source_find_screenshot(b64_list)
             else:
                 fn = lambda: analyze_screenshot(b64_list)
         else:
+            image = None
             text = dlg.get_text()
             if not text:
                 loading.close()
@@ -204,21 +213,22 @@ class BullshitDetectorApp:
             elif mode == "explain":
                 from ai.analyzer import explain_text
                 fn = lambda: explain_text(text)
+            elif mode == "source":
+                from ai.analyzer import source_find_text
+                fn = lambda: source_find_text(text)
             else:
                 fn = lambda: analyze_text(text)
         threading.Thread(
-            target=lambda: self.signals.show_result.emit(fn(), None, loading),
+            target=lambda: self.signals.show_result.emit(fn(), None, loading, image),
             daemon=True,
         ).start()
 
-    def _show_result(self, result: dict, position, loading=None):
+    def _show_result(self, result: dict, position, loading=None, image=None):
         if loading:
             loading.close()
         elif self._loading:
             self._loading.close()
             self._loading = None
-        image = self._capture_image
-        self._capture_image = None
         # 清理已关闭的旧窗口
         self._result_windows = [w for w in self._result_windows if w.isVisible()]
         win = ResultWindow(result, position, image=image)

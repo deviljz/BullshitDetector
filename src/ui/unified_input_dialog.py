@@ -75,7 +75,7 @@ class _ThumbWidget(QFrame):
 class UnifiedInputDialog(QDialog):
     """统一输入对话框：文字/链接 + 图片（多张），自动填充剪贴板。"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, preloaded_image: "Image.Image | None" = None):
         super().__init__(parent)
         self._images: list[Image.Image] = []
         self._thumb_widgets: list[_ThumbWidget] = []
@@ -96,7 +96,10 @@ class UnifiedInputDialog(QDialog):
         self._build_ui()
         self.setMinimumWidth(520)
         self.adjustSize()
-        self._try_load_clipboard()
+        if preloaded_image is not None:
+            self._add_image(preloaded_image)
+        else:
+            self._try_load_clipboard()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -196,7 +199,7 @@ class UnifiedInputDialog(QDialog):
 
     def _update_buttons(self):
         has_content = bool(self._images) or bool(self._text_edit.toPlainText().strip())
-        for btn in (self._btn_summarize, self._btn_explain, self._btn_analyze):
+        for btn in (self._btn_summarize, self._btn_explain, self._btn_source, self._btn_analyze):
             btn.setEnabled(has_content)
 
     def _build_ui(self):
@@ -317,6 +320,18 @@ class UnifiedInputDialog(QDialog):
         )
         self._btn_explain.clicked.connect(lambda: self._accept_with_mode("explain"))
 
+        self._btn_source = QPushButton("🎬 求出处")
+        self._btn_source.setFixedHeight(34)
+        self._btn_source.setEnabled(False)
+        self._btn_source.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_source.setStyleSheet(
+            "QPushButton { background: #2e1e0e; color: #fab387; border: 1px solid #fab387;"
+            " border-radius: 6px; font-size: 13px; font-weight: bold; padding: 0 12px; }"
+            "QPushButton:hover { background: #3e2a0e; border-color: #fac397; color: #fac397; }"
+            + _dis
+        )
+        self._btn_source.clicked.connect(lambda: self._accept_with_mode("source"))
+
         self._btn_analyze = QPushButton("🔍 鉴屎官")
         self._btn_analyze.setFixedHeight(34)
         self._btn_analyze.setEnabled(False)
@@ -332,6 +347,7 @@ class UnifiedInputDialog(QDialog):
         btn_row.addWidget(cancel_btn)
         btn_row.addWidget(self._btn_summarize)
         btn_row.addWidget(self._btn_explain)
+        btn_row.addWidget(self._btn_source)
         btn_row.addWidget(self._btn_analyze)
         layout.addLayout(btn_row)
 

@@ -53,8 +53,20 @@ if errorlevel 1 (
 )
 
 echo.
+echo [+] Copying config sample and docs...
+copy /y config.json.example dist\config.json.example >nul
+if not exist dist\docs mkdir dist\docs
+copy /y docs\USAGE.md dist\docs\USAGE.md >nul
+copy /y docs\API_KEYS.md dist\docs\API_KEYS.md >nul
+
+echo.
 echo ============================================
 echo  Done! Output: dist\BullshitDetector.exe
+echo  dist\ contents:
+echo    BullshitDetector.exe
+echo    config.json.example  ^<-- copy to config.json and fill keys
+echo    docs\USAGE.md
+echo    docs\API_KEYS.md
 echo  Copy your config.json to dist\ before run.
 echo ============================================
 echo.
