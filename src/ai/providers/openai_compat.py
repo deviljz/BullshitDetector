@@ -261,6 +261,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 result["reference_image_urls"] = get_last_vision_urls()
             result["_search_log"] = search_log
             result["_token_usage"] = tokens
+            result["_vision_used"] = _active_tools is SOURCE_TOOLS
             return result
         except Exception as e:
             return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}

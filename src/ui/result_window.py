@@ -825,6 +825,18 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         main_layout.addWidget(sep)
 
+        if not self._result.get("_vision_used", True):
+            vision_tip = QLabel(
+                "⚠️ 未启用以图搜图（未配置 Google Vision Key），冷门作品识别准确率可能偏低。"
+                "  配置方法见 docs/API_KEYS.md"
+            )
+            vision_tip.setWordWrap(True)
+            vision_tip.setStyleSheet(
+                "color: #f9e2af; font-size: 11px;"
+                " background: #2a2018; border-radius: 6px; padding: 7px 12px;"
+            )
+            main_layout.addWidget(vision_tip)
+
         if error or not found:
             # 未能识别
             err_lbl = QLabel(f"💥 {error or '未能识别该截图来自哪部作品'}")
