@@ -256,9 +256,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             result = parse_json(content)
             for k, v in self._SOURCE_DEFAULTS.items():
                 result.setdefault(k, v)
-            # 若 AI 没有填入参考图，自动注入 Vision API 返回的相似图片
-            if not result.get("reference_image_urls"):
-                result["reference_image_urls"] = get_last_vision_urls()
+            # Vision API 的视觉相似图优先；AI 自填的 URL 只作无 Vision 时的 fallback
+            vision_urls = get_last_vision_urls()
+            if vision_urls:
+                result["reference_image_urls"] = vision_urls
+            elif not result.get("reference_image_urls"):
+                result["reference_image_urls"] = []
             result["_search_log"] = search_log
             result["_token_usage"] = tokens
             result["_vision_used"] = _active_tools is SOURCE_TOOLS
