@@ -6,6 +6,12 @@
 - Prompt 改动必须是通用的，适用于所有类似输入，而不只是解决当前这一个案例。
 - 下游修复（如 UI 容错显示）只作 fallback，根本问题应在 prompt 或工具层解决。
 
+## 安全原则（最高优先级）
+
+- **任何 API Key、Token、密码、密钥严禁写入代码文件**，只能写入 `config.json`（已在 .gitignore 中）。
+- 测试脚本、注释、日志、文档中同样禁止出现真实 Key。
+- 提交前必须检查：`git diff --cached` 中不得含任何 key 字符串。
+
 ## 代码质量原则
 
 - 不重复造轮子：多处相似逻辑提取为共用函数，已有 `_tool_loop` / `_run_single` / `_make_card` 等 helper，新功能优先复用。

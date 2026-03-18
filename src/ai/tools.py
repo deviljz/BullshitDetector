@@ -92,11 +92,16 @@ def _reverse_image_search_vision(image_b64: str, api_key: str) -> str:
             title = p.get("pageTitle", "").strip()
             url = p.get("url", "")
             lines.append(f"  {title} — {url}" if title else f"  {url}")
-    similar = det.get("visuallySimilarImages", [])
-    if similar:
-        global _last_vision_urls
-        _last_vision_urls = [s["url"] for s in similar[:3] if s.get("url")]
-        lines.append(f"\n【相似图片 URL】")
+    # 参考图优先级：精确匹配 > 部分匹配 > 视觉相似（避免随机不相关图片）
+    global _last_vision_urls
+    full_match = det.get("fullMatchingImages", [])
+    partial_match = det.get("partialMatchingImages", [])
+    visual_similar = det.get("visuallySimilarImages", [])
+    ref_pool = full_match or partial_match or visual_similar
+    if ref_pool:
+        _last_vision_urls = [s["url"] for s in ref_pool[:3] if s.get("url")]
+        match_type = "精确匹配" if full_match else ("部分匹配" if partial_match else "视觉相似")
+        lines.append(f"\n【参考图片（{match_type}，{len(ref_pool)} 条）】")
         for url in _last_vision_urls:
             lines.append(f"  {url}")
     return "\n".join(lines) if lines else "未找到匹配结果"
