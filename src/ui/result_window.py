@@ -1342,15 +1342,17 @@ class ResultWindow(QWidget):
         target_w = min(1200, geo.width() - 80)
         target_h = min(860, geo.height() - 80)
 
+        # 留出 460px 右边距，确保点开追问面板（+408px）后仍在屏幕内
+        chat_reserve = 460
         if not self._position:
             self.move(
-                geo.x() + geo.width() - target_w - 40,
+                geo.x() + geo.width() - target_w - chat_reserve,
                 geo.y() + 60,
             )
             return
 
         x, y = self._position
-        x = min(x + 12, geo.x() + geo.width() - target_w - 8)
+        x = min(x + 12, geo.x() + geo.width() - target_w - chat_reserve)
         y = min(y, geo.y() + geo.height() - target_h - 8)
         x = max(geo.x() + 8, x)
         y = max(geo.y() + 8, y)
