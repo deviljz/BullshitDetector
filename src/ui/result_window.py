@@ -1347,7 +1347,7 @@ class ResultWindow(QWidget):
         if not self._position:
             self.move(
                 geo.x() + geo.width() - target_w - chat_reserve,
-                geo.y() + 60,
+                geo.y() + 160,
             )
             return
 
