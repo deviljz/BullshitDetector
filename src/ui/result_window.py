@@ -238,8 +238,8 @@ class ResultWindow(QWidget):
         screen = QApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            w = min(1200, geo.width() - 80)
-            h = min(800, geo.height() - 80)
+            w = min(1440, geo.width() - 80)
+            h = min(860, geo.height() - 80)
             self.resize(w, h)
         self.setMinimumWidth(480)
         self.setMinimumHeight(360)
@@ -271,8 +271,8 @@ class ResultWindow(QWidget):
         else:
             self._init_analyze_ui()
 
-        # 追问面板（最右列，固定宽度）
-        self._root_h.addWidget(self._build_chat_panel(mode or "analyze"), 0)
+        # 追问面板（最右列，stretch=1 随窗口比例伸缩）
+        self._root_h.addWidget(self._build_chat_panel(mode or "analyze"), 1)
 
     def _init_analyze_ui(self):
         """鉴屎模式 UI（原 _init_ui 内联代码）。"""
@@ -1091,8 +1091,8 @@ class ResultWindow(QWidget):
     def _build_chat_panel(self, mode: str) -> "QWidget":
         panel = QFrame()
         panel.setObjectName("chatPanel")
-        panel.setMinimumWidth(300)
-        panel.setMaximumWidth(420)
+        panel.setMinimumWidth(320)
+        panel.setMaximumWidth(520)
         panel.setStyleSheet(
             "#chatPanel { background: rgba(17,17,27,230); border-radius: 18px;"
             " border: 1px solid #313244; }"
@@ -1292,8 +1292,8 @@ class ResultWindow(QWidget):
         geo = screen.availableGeometry()
 
         # self.width() may not reflect final layout size before show(), use target width
-        target_w = min(1200, geo.width() - 80)
-        target_h = min(800, geo.height() - 80)
+        target_w = min(1440, geo.width() - 80)
+        target_h = min(860, geo.height() - 80)
 
         if not self._position:
             self.move(
