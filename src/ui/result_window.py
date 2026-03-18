@@ -13,8 +13,9 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QScrollArea,
+    QLineEdit,
 )
-from PyQt6.QtCore import Qt, QPoint, QRect, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QRect, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QFont,
     QColor,
@@ -204,7 +205,8 @@ class CollapsibleSection(QWidget):
 class ResultWindow(QWidget):
     """赛博朋克风格无边框结果卡片。"""
 
-    _ref_image_loaded = pyqtSignal(object, object)  # (QLabel, QPixmap | None)
+    _ref_image_loaded = pyqtSignal(object, object)      # (QLabel, QPixmap | None)
+    _follow_up_received = pyqtSignal(str, str)           # (question, answer)
 
     def __init__(self, result: dict, position: tuple | None = None, image=None):
         super().__init__()
@@ -212,7 +214,10 @@ class ResultWindow(QWidget):
         self._position = position
         self._image = image
         self._drag_pos: QPoint | None = None
+        self._follow_up_history: list[dict] = []
+        self._chat_loading_bubble = None
         self._ref_image_loaded.connect(self._on_ref_image_loaded)
+        self._follow_up_received.connect(self._on_follow_up_received)
         self._init_window()
         self._init_ui()
         self._make_labels_selectable()
@@ -250,16 +255,27 @@ class ResultWindow(QWidget):
 
     # ── UI 构建 ────────────────────────────────────────────────────────────────
     def _init_ui(self):
-        if self._result.get("_mode") == "summary":
-            self._init_summary_ui()
-            return
-        if self._result.get("_mode") == "explain":
-            self._init_explain_ui()
-            return
-        if self._result.get("_mode") == "source":
-            self._init_source_ui()
-            return
+        mode = self._result.get("_mode")
 
+        # 根布局：[内容卡片 | 追问面板]
+        self._root_h = QHBoxLayout(self)
+        self._root_h.setContentsMargins(0, 0, 0, 0)
+        self._root_h.setSpacing(8)
+
+        if mode == "summary":
+            self._init_summary_ui()
+        elif mode == "explain":
+            self._init_explain_ui()
+        elif mode == "source":
+            self._init_source_ui()
+        else:
+            self._init_analyze_ui()
+
+        # 追问面板（最右列，固定宽度）
+        self._root_h.addWidget(self._build_chat_panel(mode or "analyze"), 0)
+
+    def _init_analyze_ui(self):
+        """鉴屎模式 UI（原 _init_ui 内联代码）。"""
         # 新 schema 解包
         header = self._result.get("header", {})
         bs_index = header.get("bullshit_index") or self._result.get("bullshit_index", 50) or 50
@@ -274,10 +290,7 @@ class ResultWindow(QWidget):
         one_line = self._result.get("one_line_summary", "")
         error = self._result.get("error")
 
-        # 外层容器（带圆角背景）
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-
+        # 内容卡片（加入根 HBoxLayout，stretch=3 占大部分宽度）
         card = QFrame()
         card.setObjectName("card")
         card.setStyleSheet(
@@ -287,7 +300,7 @@ class ResultWindow(QWidget):
             "  border: 1px solid #45475a;"
             "}"
         )
-        outer.addWidget(card)
+        self._root_h.addWidget(card, 3)
 
         main_layout = QVBoxLayout(card)
         main_layout.setContentsMargins(24, 20, 24, 20)
@@ -932,8 +945,9 @@ class ResultWindow(QWidget):
 
         # 对比图区域：输入截图 + AI 搜索到的参考图并排
         ref_urls = self._result.get("reference_image_urls", [])
+        page_urls = self._result.get("source_page_urls", [])
         if found or ref_urls:
-            self._load_ref_images(main_layout, ref_urls, self._image)
+            self._load_ref_images(main_layout, ref_urls, self._image, page_urls)
 
     def _on_ref_image_loaded(self, label, pixmap):
         """Slot: update reference image label from background thread."""
@@ -951,7 +965,7 @@ class ResultWindow(QWidget):
                 " color: #585b70;"
             )
 
-    def _load_ref_images(self, layout: "QVBoxLayout", urls: list, input_image=None):
+    def _load_ref_images(self, layout: "QVBoxLayout", urls: list, input_image=None, page_urls: list | None = None):
         """
         Build a comparison strip: [输入截图] | [参考图1] | [参考图2] ...
         Each cell has an image label + caption below.
@@ -1019,6 +1033,24 @@ class ResultWindow(QWidget):
         container.setLayout(row)
         layout.addWidget(container)
 
+        # 来源链接（Vision pagesWithMatchingImages）
+        if page_urls:
+            links_lbl = QLabel("相关来源")
+            links_lbl.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold; padding: 4px 0 2px 0;")
+            layout.addWidget(links_lbl)
+            for p in page_urls:
+                title = p.get("title") or p.get("url", "")
+                url = p.get("url", "")
+                if not url:
+                    continue
+                display = title if title else url
+                link_lbl = QLabel(f'<a href="{url}" style="color:#89b4fa; text-decoration:none;">🔗 {display}</a>')
+                link_lbl.setTextFormat(Qt.TextFormat.RichText)
+                link_lbl.setOpenExternalLinks(True)
+                link_lbl.setWordWrap(True)
+                link_lbl.setStyleSheet("font-size: 11px; padding: 1px 0;")
+                layout.addWidget(link_lbl)
+
         if not ref_labels:
             return
 
@@ -1047,16 +1079,166 @@ class ResultWindow(QWidget):
 
         threading.Thread(target=_fetch, daemon=True).start()
 
+    # ── 追问面板 ───────────────────────────────────────────────────────────────
+
+    _QUICK_ACTIONS: dict[str, list[str]] = {
+        "analyze": ["求详细", "有没有更多证据", "帮我反驳"],
+        "summary": ["更详细一点", "关键争议是什么"],
+        "explain": ["讲详细", "历史背景", "举个例子"],
+        "source":  ["这部作品讲什么", "还有哪些类似作品"],
+    }
+
+    def _build_chat_panel(self, mode: str) -> "QWidget":
+        panel = QFrame()
+        panel.setObjectName("chatPanel")
+        panel.setMinimumWidth(300)
+        panel.setMaximumWidth(420)
+        panel.setStyleSheet(
+            "#chatPanel { background: rgba(17,17,27,230); border-radius: 18px;"
+            " border: 1px solid #313244; }"
+        )
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(14, 16, 14, 14)
+        layout.setSpacing(8)
+
+        header = QLabel("💬 追问")
+        header.setStyleSheet("color: #89b4fa; font-size: 14px; font-weight: bold;")
+        layout.addWidget(header)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("color: #313244;")
+        layout.addWidget(sep)
+
+        # 消息气泡区（滚动）
+        self._chat_msg_widget = QWidget()
+        self._chat_msg_widget.setStyleSheet("background: transparent;")
+        self._chat_msg_layout = QVBoxLayout(self._chat_msg_widget)
+        self._chat_msg_layout.setContentsMargins(0, 0, 0, 0)
+        self._chat_msg_layout.setSpacing(6)
+        self._chat_msg_layout.addStretch()
+
+        self._chat_scroll = QScrollArea()
+        self._chat_scroll.setWidget(self._chat_msg_widget)
+        self._chat_scroll.setWidgetResizable(True)
+        self._chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._chat_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; }"
+            "QScrollBar:vertical { width: 4px; background: transparent; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 2px; }"
+        )
+        layout.addWidget(self._chat_scroll, 1)
+
+        # 快捷追问按钮
+        quick_actions = self._QUICK_ACTIONS.get(mode, [])
+        if quick_actions:
+            quick_row = QHBoxLayout()
+            quick_row.setSpacing(4)
+            for text in quick_actions:
+                btn = QPushButton(text)
+                btn.setStyleSheet(
+                    "QPushButton { background: #1e1e2e; color: #6c7086; font-size: 10px;"
+                    " border: 1px solid #313244; border-radius: 6px; padding: 3px 7px; }"
+                    "QPushButton:hover { color: #89b4fa; border-color: #89b4fa; }"
+                )
+                btn.clicked.connect(lambda checked, t=text: self._send_follow_up(t))
+                quick_row.addWidget(btn)
+            quick_row.addStretch()
+            layout.addLayout(quick_row)
+
+        # 输入行
+        input_row = QHBoxLayout()
+        input_row.setSpacing(6)
+        self._chat_input = QLineEdit()
+        self._chat_input.setPlaceholderText("输入追问…")
+        self._chat_input.setStyleSheet(
+            "QLineEdit { background: #1e1e2e; color: #cdd6f4; font-size: 12px;"
+            " border: 1px solid #313244; border-radius: 8px; padding: 6px 10px; }"
+            "QLineEdit:focus { border-color: #89b4fa; }"
+        )
+        self._chat_input.returnPressed.connect(lambda: self._send_follow_up(self._chat_input.text()))
+
+        self._chat_send_btn = QPushButton("→")
+        self._chat_send_btn.setFixedSize(32, 32)
+        self._chat_send_btn.setStyleSheet(
+            "QPushButton { background: #1a2a4a; color: #89b4fa; border-radius: 8px;"
+            " font-size: 14px; font-weight: bold; border: 1px solid #89b4fa; }"
+            "QPushButton:hover { background: #89b4fa; color: #11111b; }"
+            "QPushButton:disabled { background: #313244; color: #45475a; border-color: #313244; }"
+        )
+        self._chat_send_btn.clicked.connect(lambda: self._send_follow_up(self._chat_input.text()))
+
+        input_row.addWidget(self._chat_input, 1)
+        input_row.addWidget(self._chat_send_btn)
+        layout.addLayout(input_row)
+
+        return panel
+
+    def _add_chat_bubble(self, text: str, is_user: bool) -> "QLabel":
+        lbl = QLabel(text)
+        lbl.setWordWrap(True)
+        lbl.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        if is_user:
+            lbl.setStyleSheet(
+                "background: #1a2a4a; color: #89b4fa; font-size: 12px;"
+                " border-radius: 10px; padding: 8px 12px;"
+            )
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+        else:
+            lbl.setStyleSheet(
+                "background: #1e1e2e; color: #cdd6f4; font-size: 12px;"
+                " border-radius: 10px; padding: 8px 12px;"
+            )
+            lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        # 插入到 stretch 之前
+        count = self._chat_msg_layout.count()
+        self._chat_msg_layout.insertWidget(count - 1, lbl)
+        QTimer.singleShot(50, lambda: self._chat_scroll.verticalScrollBar().setValue(
+            self._chat_scroll.verticalScrollBar().maximum()
+        ))
+        return lbl
+
+    def _send_follow_up(self, text: str):
+        text = text.strip()
+        if not text:
+            return
+        self._chat_input.clear()
+        self._chat_input.setEnabled(False)
+        self._chat_send_btn.setEnabled(False)
+        self._add_chat_bubble(text, is_user=True)
+        self._chat_loading_bubble = self._add_chat_bubble("思考中…", is_user=False)
+
+        result = self._result
+        history = list(self._follow_up_history)
+
+        def _call():
+            from ai.analyzer import follow_up_text
+            resp = follow_up_text(result, history, text)
+            self._follow_up_received.emit(text, resp)
+
+        threading.Thread(target=_call, daemon=True).start()
+
+    def _on_follow_up_received(self, question: str, answer: str):
+        if self._chat_loading_bubble is not None:
+            self._chat_msg_layout.removeWidget(self._chat_loading_bubble)
+            self._chat_loading_bubble.deleteLater()
+            self._chat_loading_bubble = None
+        self._add_chat_bubble(answer, is_user=False)
+        self._follow_up_history.append({"user": question, "ai": answer})
+        self._chat_input.setEnabled(True)
+        self._chat_send_btn.setEnabled(True)
+
     def _make_card(self, h_margin: int = 28, v_margin: int = 22, spacing: int = 16) -> "QVBoxLayout":
-        """Create standard card frame. Returns inner main_layout."""
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
+        """Create standard card frame, add to root HBoxLayout. Returns inner main_layout."""
         card = QFrame()
         card.setObjectName("card")
         card.setStyleSheet(
             "#card { background: rgba(24,24,37,242); border-radius: 18px; border: 1px solid #45475a; }"
         )
-        outer.addWidget(card)
+        self._root_h.addWidget(card, 3)
         inner = QVBoxLayout(card)
         inner.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
         inner.setSpacing(spacing)
@@ -1109,17 +1291,20 @@ class ResultWindow(QWidget):
             return
         geo = screen.availableGeometry()
 
+        # self.width() may not reflect final layout size before show(), use target width
+        target_w = min(1200, geo.width() - 80)
+        target_h = min(800, geo.height() - 80)
+
         if not self._position:
             self.move(
-                geo.x() + geo.width() - self.width() - 40,
+                geo.x() + geo.width() - target_w - 40,
                 geo.y() + 60,
             )
             return
 
         x, y = self._position
-        w, h = self.width(), self.height()
-        x = min(x + 12, geo.x() + geo.width() - w - 8)
-        y = min(y, geo.y() + geo.height() - h - 8)
+        x = min(x + 12, geo.x() + geo.width() - target_w - 8)
+        y = min(y, geo.y() + geo.height() - target_h - 8)
         x = max(geo.x() + 8, x)
         y = max(geo.y() + 8, y)
         self.move(QPoint(x, y))

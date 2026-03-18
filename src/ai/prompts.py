@@ -589,5 +589,24 @@ found=false 时的格式：
 【输出格式强制要求】输出必须是纯净的标准 JSON，不包含任何 markdown 代码块标记。"""
 
 
+def get_follow_up_prompt(mode: str) -> str:
+    """追问功能的 system prompt，纯文本回答，不需要 JSON。"""
+    _MODE_ZH = {
+        "analyze": "信息真实性核查",
+        "summary": "内容总结",
+        "explain": "内容解释",
+        "source": "作品来源识别",
+    }
+    context_desc = _MODE_ZH.get(mode, "内容分析")
+    return (
+        f"你正在帮用户对一份「{context_desc}」结果进行追问对话。\n"
+        "用户的第一条消息包含了原始分析背景，后续是追问问题。请直接回答，要求：\n"
+        "1. 用中文回答\n"
+        "2. 纯文本，不需要 JSON，不需要 markdown 格式标记\n"
+        "3. 长度根据问题自然决定：简单问题一两句，复杂问题展开讲清楚\n"
+        "4. 语气自然，像在对话，不用每次重复背景信息"
+    )
+
+
 # 向后兼容：默认毒舌风格（供测试和旧代码直接 import 使用）
 SYSTEM_PROMPT = get_system_prompt("toxic")

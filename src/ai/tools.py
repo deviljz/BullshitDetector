@@ -5,16 +5,22 @@ from typing import List
 # 求出处模式临时存放当前图片 base64（单用户桌面应用，无并发问题）
 _current_image_b64: str | None = None
 _last_vision_urls: list[str] = []
+_last_vision_page_urls: list[dict] = []  # [{"title": str, "url": str}, ...]
 
 
 def set_source_image(b64: str | None) -> None:
-    global _current_image_b64, _last_vision_urls
+    global _current_image_b64, _last_vision_urls, _last_vision_page_urls
     _current_image_b64 = b64
     _last_vision_urls = []
+    _last_vision_page_urls = []
 
 
 def get_last_vision_urls() -> list[str]:
     return list(_last_vision_urls)
+
+
+def get_last_vision_page_urls() -> list[dict]:
+    return list(_last_vision_page_urls)
 
 
 def _search_ddg(query: str, max_results: int = 5) -> List[dict]:
@@ -86,12 +92,17 @@ def _reverse_image_search_vision(image_b64: str, api_key: str) -> str:
             if e.get("description"):
                 lines.append(f"  [{e.get('score', 0):.2f}] {e['description']}")
     pages = det.get("pagesWithMatchingImages", [])
+    global _last_vision_page_urls
     if pages:
         lines.append(f"\n【匹配页面（{len(pages)} 条）】")
         for p in pages[:5]:
             title = p.get("pageTitle", "").strip()
             url = p.get("url", "")
             lines.append(f"  {title} — {url}" if title else f"  {url}")
+        _last_vision_page_urls = [
+            {"title": p.get("pageTitle", "").strip(), "url": p.get("url", "")}
+            for p in pages[:5] if p.get("url")
+        ]
     # 参考图优先级：精确匹配 > 部分匹配 > 视觉相似（避免随机不相关图片）
     global _last_vision_urls
     full_match = det.get("fullMatchingImages", [])

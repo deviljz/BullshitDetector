@@ -61,6 +61,59 @@ def source_find_text(text: str) -> dict:
     return _load_provider().source_find_article(text)
 
 
+def _result_to_context(result: dict) -> str:
+    """Serialize a result dict to a plain-text context string for follow-up."""
+    mode = result.get("_mode", "analyze")
+    lines = []
+    if mode == "analyze":
+        h = result.get("header", {})
+        if h.get("verdict"):
+            lines.append(f"鉴定结论：{h['verdict']}")
+        if h.get("risk_level"):
+            lines.append(f"风险级别：{h['risk_level']}")
+        if result.get("toxic_review"):
+            lines.append(f"核查评语：{result['toxic_review']}")
+        for c in result.get("claim_verification", []):
+            lines.append(f"声明：{c.get('verdict', '')} {c.get('claim', '')}  {c.get('note', '')}")
+        for f in result.get("flaw_list", []):
+            lines.append(f"破绽：{f}")
+    elif mode == "summary":
+        if result.get("headline"):
+            lines.append(f"标题：{result['headline']}")
+        for pt in result.get("key_points", []):
+            lines.append(f"要点：{pt}")
+        if result.get("bias_note"):
+            lines.append(f"偏向备注：{result['bias_note']}")
+    elif mode == "explain":
+        if result.get("subject"):
+            lines.append(f"主题：{result['subject']}")
+        if result.get("short_answer"):
+            lines.append(f"简短回答：{result['short_answer']}")
+        if result.get("detail"):
+            lines.append(f"详细说明：{result['detail']}")
+        if result.get("origin"):
+            lines.append(f"来源：{result['origin']}")
+    elif mode == "source":
+        lines.append(f"作品名：{result.get('title', '')} ({result.get('original_title', '')})")
+        lines.append(f"类型：{result.get('media_type', '')}  年份：{result.get('year', '')}  制作：{result.get('studio', '')}")
+        if result.get("episode"):
+            lines.append(f"集数：{result.get('episode', '')} {result.get('episode_title', '')}")
+        if result.get("scene"):
+            lines.append(f"场景：{result['scene']}")
+        if result.get("characters"):
+            lines.append(f"角色：{', '.join(result['characters'])}")
+        if result.get("note"):
+            lines.append(f"备注：{result['note']}")
+    return "\n".join(l for l in lines if l.strip())
+
+
+def follow_up_text(result: dict, history: list[dict], question: str) -> str:
+    """Ask a follow-up question about a previous analysis result."""
+    context = _result_to_context(result)
+    mode = result.get("_mode", "analyze")
+    return _load_provider().follow_up(context, history, question, mode)
+
+
 def analyze_image(image_path: str) -> dict:
     """从本地文件路径分析图片真实性（测试 / 批处理链路）。"""
     from PIL import Image

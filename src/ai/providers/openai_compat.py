@@ -13,9 +13,9 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_source_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_source_prompt, get_follow_up_prompt
 from ai.json_utils import parse_json, normalize_result
-from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls
+from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 
 MAX_TOOL_ROUNDS = 5
 
@@ -262,6 +262,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 result["reference_image_urls"] = vision_urls
             elif not result.get("reference_image_urls"):
                 result["reference_image_urls"] = []
+            # 作品来源页面链接（来自 Vision pagesWithMatchingImages）
+            page_urls = get_last_vision_page_urls()
+            if page_urls:
+                result["source_page_urls"] = page_urls
+            elif not result.get("source_page_urls"):
+                result["source_page_urls"] = []
             result["_search_log"] = search_log
             result["_token_usage"] = tokens
             result["_vision_used"] = _active_tools is SOURCE_TOOLS
@@ -286,6 +292,28 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             return result
         except Exception as e:
             return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}
+
+
+    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> str:
+        """Plain-text follow-up conversation. Returns response string."""
+        messages = [
+            {"role": "system", "content": get_follow_up_prompt(mode)},
+            {"role": "user", "content": f"【分析背景】\n{context_text}"},
+            {"role": "assistant", "content": "好的，我已了解以上分析内容，请问有什么想追问的？"},
+        ]
+        for turn in history:
+            messages.append({"role": "user", "content": turn["user"]})
+            messages.append({"role": "assistant", "content": turn["ai"]})
+        messages.append({"role": "user", "content": question})
+        try:
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=messages,
+                max_tokens=1500,
+            )
+            return resp.choices[0].message.content or "（无回复）"
+        except Exception as e:
+            return f"追问失败：{type(e).__name__}: {e}"
 
 
 def _error_result(error_msg: str) -> dict:
