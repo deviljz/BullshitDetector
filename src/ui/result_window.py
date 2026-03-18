@@ -208,10 +208,12 @@ class ResultWindow(QWidget):
     _ref_image_loaded = pyqtSignal(object, object)      # (QLabel, QPixmap | None)
     _follow_up_received = pyqtSignal(str, str)           # (question, answer)
 
-    def __init__(self, result: dict, position: tuple | None = None, images=None, image=None):
+    def __init__(self, result: dict, position: tuple | None = None, images=None, image=None,
+                 history_id: str | None = None, chat_history: list | None = None):
         super().__init__()
         self._result = result
         self._position = position
+        self._history_id = history_id
         # images 优先；image 为旧调用兼容
         if images is not None:
             self._images: list = images if isinstance(images, list) else [images]
@@ -221,8 +223,8 @@ class ResultWindow(QWidget):
             self._images = []
         self._image = self._images[0] if self._images else None
         self._drag_pos: QPoint | None = None
-        self._follow_up_history: list[dict] = []
-        self._chat_loading_bubble = None
+        self._follow_up_history: list[dict] = list(chat_history) if chat_history else []
+        self._loading_label: QLabel | None = None
         self._ref_image_loaded.connect(self._on_ref_image_loaded)
         self._follow_up_received.connect(self._on_follow_up_received)
         self._init_window()
@@ -235,7 +237,6 @@ class ResultWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.Window
             | Qt.WindowType.FramelessWindowHint
-            | Qt.WindowType.WindowStaysOnTopHint
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
@@ -309,7 +310,7 @@ class ResultWindow(QWidget):
             "  border: 1px solid #45475a;"
             "}"
         )
-        self._root_h.addWidget(card, 3)
+        self._root_h.insertWidget(0, card, 3)  # 始终插到最前，reload() 可安全 takeAt(0)
 
         main_layout = QVBoxLayout(card)
         main_layout.setContentsMargins(24, 20, 24, 20)
@@ -590,6 +591,7 @@ class ResultWindow(QWidget):
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _init_summary_ui(self):
         headline = self._result.get("headline", "")
+        core_idea = self._result.get("core_idea", "")
         key_points: list = self._result.get("key_points", [])
         bias_note = self._result.get("bias_note", "")
         orig_lang = self._result.get("original_language", "zh")
@@ -634,6 +636,17 @@ class ResultWindow(QWidget):
             )
         hl_lbl.setWordWrap(True)
         main_layout.addWidget(hl_lbl)
+
+        # ── 中心思想 ────────────────────────────────────────────────────────────
+        if core_idea and not error:
+            ci_lbl = QLabel(core_idea)
+            ci_lbl.setWordWrap(True)
+            ci_lbl.setStyleSheet(
+                "color: #a6e3a1; font-size: 13px;"
+                " background: #0f2018; border-left: 3px solid #a6e3a1;"
+                " border-radius: 4px; padding: 8px 12px;"
+            )
+            main_layout.addWidget(ci_lbl)
 
         # ── 要点列表 ────────────────────────────────────────────────────────────
         if key_points:
@@ -1157,41 +1170,33 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         layout.addWidget(sep)
 
-        # 消息气泡区（滚动）
-        self._chat_msg_widget = QWidget()
-        self._chat_msg_widget.setStyleSheet("background: transparent;")
-        self._chat_msg_layout = QVBoxLayout(self._chat_msg_widget)
-        self._chat_msg_layout.setContentsMargins(0, 0, 0, 0)
-        self._chat_msg_layout.setSpacing(6)
-        self._chat_msg_layout.addStretch()
-
+        # 消息区（QScrollArea + QLabel 气泡）
         self._chat_scroll = QScrollArea()
-        self._chat_scroll.setWidget(self._chat_msg_widget)
         self._chat_scroll.setWidgetResizable(True)
         self._chat_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._chat_scroll.setStyleSheet(
-            "QScrollArea { background: transparent; }"
+            "QScrollArea { background: transparent; border: none; }"
             "QScrollBar:vertical { width: 4px; background: transparent; }"
             "QScrollBar::handle:vertical { background: #45475a; border-radius: 2px; }"
         )
+        msgs_widget = QWidget()
+        msgs_widget.setStyleSheet("background: transparent;")
+        self._chat_msgs_layout = QVBoxLayout(msgs_widget)
+        self._chat_msgs_layout.setContentsMargins(0, 0, 0, 0)
+        self._chat_msgs_layout.setSpacing(0)
+        self._chat_msgs_layout.addStretch()
+        self._chat_scroll.setWidget(msgs_widget)
         layout.addWidget(self._chat_scroll, 1)
 
-        # 快捷追问按钮
-        quick_actions = self._QUICK_ACTIONS.get(mode, [])
-        if quick_actions:
-            quick_row = QHBoxLayout()
-            quick_row.setSpacing(4)
-            for text in quick_actions:
-                btn = QPushButton(text)
-                btn.setStyleSheet(
-                    "QPushButton { background: #1e1e2e; color: #6c7086; font-size: 10px;"
-                    " border: 1px solid #313244; border-radius: 6px; padding: 3px 7px; }"
-                    "QPushButton:hover { color: #89b4fa; border-color: #89b4fa; }"
-                )
-                btn.clicked.connect(lambda checked, t=text: self._send_follow_up(t))
-                quick_row.addWidget(btn)
-            quick_row.addStretch()
-            layout.addLayout(quick_row)
+        # 历史对话预填充
+        for turn in self._follow_up_history:
+            self._append_chat_block(turn.get("user", ""), is_user=True)
+            self._append_chat_block(turn.get("ai", ""), is_user=False)
+
+        # 快捷追问按钮（存 ref 供 reload() 按新 mode 替换）
+        self._chat_quick_widget = self._make_quick_widget(mode)
+        if self._chat_quick_widget:
+            layout.addWidget(self._chat_quick_widget)
 
         # 输入行
         input_row = QHBoxLayout()
@@ -1221,32 +1226,38 @@ class ResultWindow(QWidget):
 
         return panel
 
-    def _add_chat_bubble(self, text: str, is_user: bool) -> "QLabel":
-        lbl = QLabel(text)
-        lbl.setWordWrap(True)
-        lbl.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+    def _append_chat_block(self, text: str, is_user: bool) -> QLabel:
+        PANEL_W = 372  # 400 - 2*14px margin
+        bubble = QLabel(text)
+        bubble.setWordWrap(True)
+        bubble.setMaximumWidth(int(PANEL_W * 0.78))
+        bubble.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
         if is_user:
-            lbl.setStyleSheet(
-                "background: #1a2a4a; color: #89b4fa; font-size: 12px;"
-                " border-radius: 10px; padding: 8px 12px;"
-            )
-            lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            style = "background: #1a3a5c; color: #89b4fa;"
         else:
-            lbl.setStyleSheet(
-                "background: #1e1e2e; color: #cdd6f4; font-size: 12px;"
-                " border-radius: 10px; padding: 8px 12px;"
-            )
-            lbl.setAlignment(Qt.AlignmentFlag.AlignLeft)
-        # 插入到 stretch 之前
-        count = self._chat_msg_layout.count()
-        self._chat_msg_layout.insertWidget(count - 1, lbl)
+            style = "background: #313244; color: #cdd6f4;"
+        bubble.setStyleSheet(
+            f"QLabel {{ {style} border-radius: 10px; padding: 7px 11px; font-size: 12px; }}"
+        )
+
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 3, 0, 3)
+        if is_user:
+            row_layout.addStretch()
+        row_layout.addWidget(bubble)
+        if not is_user:
+            row_layout.addStretch()
+
+        # 插在末尾 stretch 之前
+        self._chat_msgs_layout.insertWidget(self._chat_msgs_layout.count() - 1, row)
         QTimer.singleShot(50, lambda: self._chat_scroll.verticalScrollBar().setValue(
             self._chat_scroll.verticalScrollBar().maximum()
         ))
-        return lbl
+        return bubble
 
     def _send_follow_up(self, text: str):
         text = text.strip()
@@ -1255,8 +1266,8 @@ class ResultWindow(QWidget):
         self._chat_input.clear()
         self._chat_input.setEnabled(False)
         self._chat_send_btn.setEnabled(False)
-        self._add_chat_bubble(text, is_user=True)
-        self._chat_loading_bubble = self._add_chat_bubble("思考中…", is_user=False)
+        self._append_chat_block(text, is_user=True)
+        self._loading_label = self._append_chat_block("思考中…", is_user=False)
 
         result = self._result
         history = list(self._follow_up_history)
@@ -1269,14 +1280,100 @@ class ResultWindow(QWidget):
         threading.Thread(target=_call, daemon=True).start()
 
     def _on_follow_up_received(self, question: str, answer: str):
-        if self._chat_loading_bubble is not None:
-            self._chat_msg_layout.removeWidget(self._chat_loading_bubble)
-            self._chat_loading_bubble.deleteLater()
-            self._chat_loading_bubble = None
-        self._add_chat_bubble(answer, is_user=False)
+        if self._loading_label is not None:
+            self._loading_label.setText(answer)
+            self._loading_label = None
+        else:
+            self._append_chat_block(answer, is_user=False)
         self._follow_up_history.append({"user": question, "ai": answer})
         self._chat_input.setEnabled(True)
         self._chat_send_btn.setEnabled(True)
+        if self._history_id:
+            import history as hs
+            hs.update_chat(self._history_id, self._follow_up_history)
+
+    def _clear_chat_messages(self):
+        """移除消息区所有气泡行（保留末尾 stretch）。"""
+        layout = self._chat_msgs_layout
+        # 末尾一项是 stretch，保留；其余全部移除
+        while layout.count() > 1:
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+
+    def _make_quick_widget(self, mode: str) -> "QWidget | None":
+        """生成快捷追问按钮行（可复用于 reload）。"""
+        quick_actions = self._QUICK_ACTIONS.get(mode, [])
+        if not quick_actions:
+            return None
+        w = QWidget()
+        w.setStyleSheet("background: transparent;")
+        row = QHBoxLayout(w)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(4)
+        for text in quick_actions:
+            btn = QPushButton(text)
+            btn.setStyleSheet(
+                "QPushButton { background: #1e1e2e; color: #6c7086; font-size: 10px;"
+                " border: 1px solid #313244; border-radius: 6px; padding: 3px 7px; }"
+                "QPushButton:hover { color: #89b4fa; border-color: #89b4fa; }"
+            )
+            btn.clicked.connect(lambda checked, t=text: self._send_follow_up(t))
+            row.addWidget(btn)
+        row.addStretch()
+        return w
+
+    def reload(self, result: dict, image=None, chat_history=None, history_id=None):
+        """原地刷新卡片内容，窗口不销毁重建，无闪烁。"""
+        # opacity=0 屏蔽 DWM 合成中间帧（setUpdatesEnabled 无法阻止 OS 层透明窗口闪烁）
+        self.setWindowOpacity(0.0)
+        self.setUpdatesEnabled(False)
+        self._result = result
+        self._images = [image] if image else []
+        self._image = image
+        self._history_id = history_id
+        self._follow_up_history = list(chat_history) if chat_history else []
+        self._loading_label = None
+
+        # 移除旧卡片（始终在 index 0），立即解除父子关系避免延迟重绘
+        item = self._root_h.takeAt(0)
+        if item and item.widget():
+            item.widget().setParent(None)
+
+        # 按新 mode 重建卡片
+        mode = result.get("_mode")
+        if mode == "summary":
+            self._init_summary_ui()
+        elif mode == "explain":
+            self._init_explain_ui()
+        elif mode == "source":
+            self._init_source_ui()
+        else:
+            self._init_analyze_ui()
+
+        # 重置追问消息
+        self._clear_chat_messages()
+        for turn in self._follow_up_history:
+            self._append_chat_block(turn.get("user", ""), is_user=True)
+            self._append_chat_block(turn.get("ai", ""), is_user=False)
+
+        # 替换快捷追问按钮（mode 可能不同）
+        panel_layout = self._chat_panel.layout()
+        old_qw = getattr(self, "_chat_quick_widget", None)
+        if old_qw is not None:
+            idx = panel_layout.indexOf(old_qw)
+            if idx >= 0:
+                panel_layout.takeAt(idx)
+            old_qw.setParent(None)
+        self._chat_quick_widget = self._make_quick_widget(mode or "analyze")
+        if self._chat_quick_widget:
+            # 插在 input_row 之前（layout 最后一项）
+            panel_layout.insertWidget(panel_layout.count() - 1, self._chat_quick_widget)
+
+        self._make_labels_selectable()
+        self.setUpdatesEnabled(True)
+        self.repaint()               # 同步强制 paint，backing store 完整后再显示
+        self.setWindowOpacity(1.0)
 
     def _make_card(self, h_margin: int = 28, v_margin: int = 22, spacing: int = 16) -> "QVBoxLayout":
         """Create standard card frame, add to root HBoxLayout. Returns inner main_layout."""
@@ -1285,7 +1382,7 @@ class ResultWindow(QWidget):
         card.setStyleSheet(
             "#card { background: rgba(24,24,37,242); border-radius: 18px; border: 1px solid #45475a; }"
         )
-        self._root_h.addWidget(card, 3)
+        self._root_h.insertWidget(0, card, 3)  # 始终插到最前，reload() 可安全 takeAt(0)
         inner = QVBoxLayout(card)
         inner.setContentsMargins(h_margin, v_margin, h_margin, v_margin)
         inner.setSpacing(spacing)
