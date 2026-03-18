@@ -928,12 +928,21 @@ class ResultWindow(QWidget):
         if pixmap is not None:
             label.setPixmap(pixmap)
             label.setText("")
+            label.setStyleSheet("border: 1px solid #45475a; border-radius: 4px; background: #0a0a14;")
         else:
-            label.hide()
+            url = label.toolTip()
+            label.setText(f'<a href="{url}" style="color:#585b70;font-size:10px;text-decoration:none;">🔗 点击查看</a>')
+            label.setTextFormat(Qt.TextFormat.RichText)
+            label.setOpenExternalLinks(True)
+            label.setStyleSheet(
+                "border: 1px dashed #313244; border-radius: 4px; background: #0a0a14;"
+                " color: #585b70;"
+            )
 
     def _load_ref_images(self, layout: "QVBoxLayout", urls: list, input_image=None):
         """
         Build a comparison strip: [输入截图] | [参考图1] | [参考图2] ...
+        Each cell has an image label + caption below.
         Reference images are fetched asynchronously.
         """
         if not urls and input_image is None:
@@ -944,40 +953,53 @@ class ResultWindow(QWidget):
         layout.addWidget(strip_label)
 
         row = QHBoxLayout()
-        row.setSpacing(8)
+        row.setSpacing(12)
         row.setContentsMargins(0, 0, 0, 0)
 
-        # 输入截图缩略图
+        def _make_cell(caption: str, border_style: str) -> tuple:
+            """Returns (img_label, cell_widget)."""
+            cell = QWidget()
+            cell.setStyleSheet("background: transparent;")
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(4)
+
+            img_lbl = QLabel()
+            img_lbl.setFixedSize(160, 120)
+            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_lbl.setStyleSheet(border_style)
+
+            cap_lbl = QLabel(caption)
+            cap_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cap_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
+
+            cell_layout.addWidget(img_lbl)
+            cell_layout.addWidget(cap_lbl)
+            return img_lbl, cell
+
+        # 输入截图
         if input_image is not None:
+            img_lbl, cell = _make_cell("原图", "border: 2px solid #fab387; border-radius: 4px; background: #0a0a14;")
             img = input_image.copy()
             img.thumbnail((160, 120))
             w, h = img.size
             data = img.tobytes("raw", "RGB")
             qimg = QImage(data, w, h, w * 3, QImage.Format.Format_RGB888)
-            px = QPixmap.fromImage(qimg)
-            in_lbl = QLabel()
-            in_lbl.setPixmap(px)
-            in_lbl.setFixedSize(160, 120)
-            in_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            in_lbl.setStyleSheet(
-                "border: 2px solid #fab387; border-radius: 4px; background: #0a0a14;"
-            )
-            in_lbl.setToolTip("输入截图")
-            row.addWidget(in_lbl)
+            img_lbl.setPixmap(QPixmap.fromImage(qimg))
+            img_lbl.setToolTip("输入截图")
+            row.addWidget(cell)
 
         # 参考图占位 + 异步加载
         ref_labels = []
-        for url in urls[:3]:
-            lbl = QLabel("加载中…")
-            lbl.setFixedSize(160, 120)
-            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            lbl.setStyleSheet(
-                "border: 1px solid #45475a; border-radius: 4px; background: #181825;"
-                " color: #585b70; font-size: 11px;"
+        for i, url in enumerate(urls[:3], 1):
+            img_lbl, cell = _make_cell(
+                f"参考 {i}",
+                "border: 1px solid #45475a; border-radius: 4px; background: #181825; color: #585b70; font-size: 11px;",
             )
-            lbl.setToolTip(url)
-            row.addWidget(lbl)
-            ref_labels.append((url, lbl))
+            img_lbl.setText("加载中…")
+            img_lbl.setToolTip(url)
+            row.addWidget(cell)
+            ref_labels.append((url, img_lbl))
 
         row.addStretch()
         container = QWidget()
