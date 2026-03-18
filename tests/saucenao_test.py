@@ -1,6 +1,7 @@
 import requests, json, sys
 
-API_KEY = 'YOUR_SAUCENAO_KEY_HERE'
+import os
+API_KEY = os.environ.get('SAUCENAO_API_KEY', 'YOUR_SAUCENAO_KEY_HERE')
 img_path = sys.argv[1] if len(sys.argv) > 1 else 'tests/fixtures/source/manga_unknown_02.jpg'
 
 with open(img_path, 'rb') as f:
