@@ -97,9 +97,9 @@
 |--------|-------------------|---------|---------|
 | Gemini（默认）| `openai_compatible` | `gemini-2.5-flash` | ❌ |
 | DeepSeek | `deepseek` | `deepseek-chat` | ✅ |
-| Kimi | `kimi` | `moonshot-v1-32k` | ✅ |
-| 通义千问 | `qwen` | `qwen-vl-max` | ✅ |
-| 智谱 GLM | `zhipu` | `glm-4v-flash` | ✅ |
+| Kimi | `kimi` | `kimi-k2.5` | ✅ |
+| 通义千问 | `qwen` | `qwen2.5-vl-max` | ✅ |
+| 智谱 GLM | `zhipu` | `glm-4.6v-flash` | ✅ |
 
 ---
 
