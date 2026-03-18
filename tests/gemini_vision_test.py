@@ -1,6 +1,7 @@
 import requests, base64, json, sys
 
-API_KEY = 'YOUR_GEMINI_API_KEY_HERE'
+import os
+API_KEY = os.environ.get('GOOGLE_API_KEY') or __import__('json').loads(open('config.json').read()).get('providers', {}).get('openai_compatible', {}).get('api_key', '')
 img_path = sys.argv[1] if len(sys.argv) > 1 else 'tests/fixtures/source/manga_unknown_02.jpg'
 
 with open(img_path, 'rb') as f:
