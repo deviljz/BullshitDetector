@@ -243,12 +243,15 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def source_find(self, images: list[str]) -> dict:
         try:
             set_source_image(images[0] if images else None)
+            from config.manager import load as _load_cfg
+            _vkey = _load_cfg().get("google_vision_api_key", "")
+            _active_tools = SOURCE_TOOLS if (_vkey and not _vkey.startswith("AIzaSy-YOUR")) else TOOLS
             messages = [
                 {"role": "system", "content": get_source_prompt()},
                 {"role": "user", "content": self._image_content(images, "请识别这张截图来自哪部作品：")},
             ]
             content, search_log, tokens = self._tool_loop(
-                messages, 2048, _SOURCE_RETRY_PROMPT, tools=SOURCE_TOOLS
+                messages, 2048, _SOURCE_RETRY_PROMPT, tools=_active_tools
             )
             result = parse_json(content)
             for k, v in self._SOURCE_DEFAULTS.items():
