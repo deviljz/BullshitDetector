@@ -1,0 +1,22 @@
+{
+  "_mode": "explain",
+  "type": "identify",
+  "subject": "25位经典日漫角色（老东西冰果游戏）",
+  "short_answer": "这是一张包含25位70-90年代经典日本动漫角色的九宫格（Bingo）测试图。",
+  "characters": [
+    {
+      "name": "梅德尔",
+      "work": "银河铁道999",
+      "note": "第一排左1"
+    },
+    {
+      "name": "小甜甜",
+      "work": "小甜甜",
+      "note": "第一排左2"
+    }
+  ],
+  "detail": "",
+  "origin": "",
+  "usage": "",
+  "original_language": "zh"
+}

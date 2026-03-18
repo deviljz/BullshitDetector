@@ -17,6 +17,7 @@ from ai.analyzer import analyze_screenshot, analyze_text
 from ui.unified_input_dialog import UnifiedInputDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
+import history as hs
 
 
 class SignalBridge(QObject):
@@ -47,11 +48,8 @@ class BullshitDetectorApp:
         px.fill(Qt.GlobalColor.transparent)
         p = QPainter(px)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.setBrush(QColor("#1e1e2e"))
-        p.setPen(QColor("#cba6f7"))
-        p.drawEllipse(1, 1, 30, 30)
-        p.setFont(QFont("Segoe UI Emoji", 16))
-        p.setPen(QColor("#f9e2af"))
+        p.setFont(QFont("Segoe UI Emoji", 18))
+        p.setPen(Qt.GlobalColor.transparent)
         p.drawText(px.rect(), Qt.AlignmentFlag.AlignCenter, "💩")
         p.end()
         return QIcon(px)
@@ -97,6 +95,12 @@ class BullshitDetectorApp:
             tone_menu.addAction(action)
             self._tone_actions[tone_key] = action
         menu.addMenu(tone_menu)
+
+        menu.addSeparator()
+
+        history_action = QAction("历史记录", menu)
+        history_action.triggered.connect(self._open_history)
+        menu.addAction(history_action)
 
         menu.addSeparator()
 
@@ -192,14 +196,15 @@ class BullshitDetectorApp:
         if images:
             from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot, source_find_screenshot
             b64_list = [image_to_base64(img) for img in images]
+            extra = dlg.get_text()  # 可能为空，有文字则一起发给 AI
             if mode == "summarize":
-                fn = lambda: summarize_screenshot(b64_list)
+                fn = lambda: summarize_screenshot(b64_list, extra)
             elif mode == "explain":
-                fn = lambda: explain_screenshot(b64_list)
+                fn = lambda: explain_screenshot(b64_list, extra)
             elif mode == "source":
-                fn = lambda: source_find_screenshot(b64_list)
+                fn = lambda: source_find_screenshot(b64_list, extra)
             else:
-                fn = lambda: analyze_screenshot(b64_list)
+                fn = lambda: analyze_screenshot(b64_list, extra)
         else:
             images = None
             text = dlg.get_text()
@@ -222,6 +227,41 @@ class BullshitDetectorApp:
             daemon=True,
         ).start()
 
+    def _open_history(self):
+        from ui.history_window import HistoryWindow
+        from PyQt6.QtWidgets import QApplication
+        if not hasattr(self, "_history_window") or not self._history_window.isVisible():
+            self._history_window = HistoryWindow()
+            screen = QApplication.primaryScreen().availableGeometry()
+            hw = self._history_window
+            hw.adjustSize()
+            # 贴在结果窗口默认位置左侧 12px（与 _position_window 逻辑一致）
+            result_default_x = screen.right() - min(1200, screen.width() - 80) - 460
+            x = max(screen.left() + 8, result_default_x - hw.width() - 12)
+            y = screen.top() + (screen.height() - hw.height()) // 2
+            hw.move(x, max(screen.top() + 20, y))
+        self._history_window.show()
+        self._history_window.raise_()
+
+    @staticmethod
+    def _make_thumbnail(images) -> str | None:
+        if not images:
+            return None
+        try:
+            import base64
+            from io import BytesIO
+            from PIL import Image
+            img = images[0]
+            if not isinstance(img, Image.Image):
+                return None
+            thumb = img.copy()
+            thumb.thumbnail((80, 80), Image.LANCZOS)
+            bio = BytesIO()
+            thumb.convert("RGB").save(bio, "JPEG", quality=60)
+            return base64.b64encode(bio.getvalue()).decode()
+        except Exception:
+            return None
+
     def _show_result(self, result: dict, position, loading=None, images=None):
         if loading:
             loading.close()
@@ -230,7 +270,8 @@ class BullshitDetectorApp:
             self._loading = None
         # 清理已关闭的旧窗口
         self._result_windows = [w for w in self._result_windows if w.isVisible()]
-        win = ResultWindow(result, position, images=images)
+        history_id = hs.add(result, thumbnail=self._make_thumbnail(images))
+        win = ResultWindow(result, position, images=images, history_id=history_id)
         # 有已打开的窗口时向右下偏移，避免完全重叠
         if self._result_windows and position is None:
             last = self._result_windows[-1]

@@ -188,8 +188,8 @@ class UnifiedInputDialog(QDialog):
 
     def _accept_with_mode(self, mode: str):
         self.selected_mode = mode
-        if not self._images:
-            raw = self._text_edit.toPlainText().strip()
+        raw = self._text_edit.toPlainText().strip()
+        if raw:
             if raw.startswith(("http://", "https://")) and "\n" not in raw:
                 from text_fetcher import fetch_article
                 self._fetched_text = fetch_article(raw)

@@ -21,9 +21,9 @@ def _load_provider():
     return get_provider(load_config())
 
 
-def analyze_screenshot(images: list[str]) -> dict:
+def analyze_screenshot(images: list[str], extra_text: str = "") -> dict:
     """分析截图内容真实性。images 为 base64 字符串列表（可多张）。"""
-    return _load_provider().analyze(images)
+    return _load_provider().analyze(images, extra_text)
 
 
 def analyze_text(text: str) -> dict:
@@ -31,9 +31,9 @@ def analyze_text(text: str) -> dict:
     return _load_provider().analyze_article(text)
 
 
-def summarize_screenshot(images: list[str]) -> dict:
+def summarize_screenshot(images: list[str], extra_text: str = "") -> dict:
     """截图内容一键总结（中文输出，外文自动翻译）。"""
-    return _load_provider().summarize(images)
+    return _load_provider().summarize(images, extra_text)
 
 
 def summarize_text(text: str) -> dict:
@@ -41,9 +41,9 @@ def summarize_text(text: str) -> dict:
     return _load_provider().summarize_article(text)
 
 
-def explain_screenshot(images: list[str]) -> dict:
+def explain_screenshot(images: list[str], extra_text: str = "") -> dict:
     """截图内容一键解释（中文输出）。"""
-    return _load_provider().explain(images)
+    return _load_provider().explain(images, extra_text)
 
 
 def explain_text(text: str) -> dict:
@@ -51,9 +51,9 @@ def explain_text(text: str) -> dict:
     return _load_provider().explain_article(text)
 
 
-def source_find_screenshot(images: list[str]) -> dict:
+def source_find_screenshot(images: list[str], extra_text: str = "") -> dict:
     """识别截图来自哪部作品（动漫/游戏/电影等）。"""
-    return _load_provider().source_find(images)
+    return _load_provider().source_find(images, extra_text)
 
 
 def source_find_text(text: str) -> dict:
