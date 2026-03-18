@@ -6,6 +6,8 @@
   "tavily_api_key": "tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
   "_vision_comment": "🎬 求出处功能可选项：Google Vision 以图搜图，免费 1000 次/月。申请见 docs/API_KEYS.md",
   "google_vision_api_key": "AIzaSy-YOUR-GOOGLE-VISION-API-KEY",
+  "_fuse_comment": "追问上下文 token 熔断阈值，超过此值时跳过原文以节省 token。设为 0 禁用",
+  "follow_up_context_limit": 30000,
   "providers": {
     "openai_compatible": {
       "_comment": "通用 OpenAI 兼容接口，默认配置为 Gemini。免费层推荐 gemini-2.5-flash，gemini-2.0-flash 免费层已不可用",

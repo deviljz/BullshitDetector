@@ -183,34 +183,39 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     # ── 截图/文章鉴定 ─────────────────────────────────────────────────────────
 
-    def analyze(self, images: list[str], extra_text: str = "") -> dict:
+    def _zero_tokens(self) -> dict:
+        return {"model": self._model, "input": 0, "output": 0}
+
+    def analyze(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
             label = "这些截图" if len(images) > 1 else "这张截图"
             messages = [
                 {"role": "system", "content": get_system_prompt(self._tone)},
                 {"role": "user", "content": self._image_content(images, f"请分析{label}中的内容真实性：", extra_text)},
             ]
-            content, search_log, tokens = self._tool_loop(messages, 4096, _ANALYZE_RETRY_PROMPT, _analyze_schema_ok)
+            content, search_log, raw_tokens = self._tool_loop(messages, 4096, _ANALYZE_RETRY_PROMPT, _analyze_schema_ok)
             result = normalize_result(parse_json(content))
             result["_search_log"] = search_log
-            result["_token_usage"] = tokens
-            return result
+            result["_token_usage"] = raw_tokens
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
 
-    def analyze_article(self, text: str) -> dict:
+    def analyze_article(self, text: str) -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_article_prompt(self._tone)},
                 {"role": "user", "content": [{"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"}]},
             ]
-            content, search_log, tokens = self._tool_loop(messages, 4096, _ANALYZE_ARTICLE_RETRY_PROMPT, _analyze_schema_ok)
+            content, search_log, raw_tokens = self._tool_loop(messages, 4096, _ANALYZE_ARTICLE_RETRY_PROMPT, _analyze_schema_ok)
             result = normalize_result(parse_json(content))
             result["_search_log"] = search_log
-            result["_token_usage"] = tokens
-            return result
+            result["_token_usage"] = raw_tokens
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
+            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
 
     # ── 一键总结 ──────────────────────────────────────────────────────────────
 
@@ -218,33 +223,35 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     _SUMMARY_RETRY = "请直接输出 JSON，不要加任何 markdown 代码块或其他文字。"
 
-    def summarize(self, images: list[str], extra_text: str = "") -> dict:
+    def summarize(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_summary_prompt()},
                 {"role": "user", "content": self._image_content(images, "请总结这些内容：", extra_text)},
             ]
-            content, _, _ = self._tool_loop(messages, 2048, self._SUMMARY_RETRY, force_first_tool=False)
+            content, _, raw_tokens = self._tool_loop(messages, 2048, self._SUMMARY_RETRY, force_first_tool=False)
             result = parse_json(content)
             for k, v in self._SUMMARY_DEFAULTS.items():
                 result.setdefault(k, v)
-            return result
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._SUMMARY_DEFAULTS, "error": str(e)}
+            return {**self._SUMMARY_DEFAULTS, "error": str(e)}, self._zero_tokens()
 
-    def summarize_article(self, text: str) -> dict:
+    def summarize_article(self, text: str) -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_summary_prompt()},
                 {"role": "user", "content": f"请总结以下内容：\n\n{text[:8000]}"},
             ]
-            content, _, _ = self._tool_loop(messages, 2048, self._SUMMARY_RETRY, force_first_tool=False)
+            content, _, raw_tokens = self._tool_loop(messages, 2048, self._SUMMARY_RETRY, force_first_tool=False)
             result = parse_json(content)
             for k, v in self._SUMMARY_DEFAULTS.items():
                 result.setdefault(k, v)
-            return result
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._SUMMARY_DEFAULTS, "error": str(e)}
+            return {**self._SUMMARY_DEFAULTS, "error": str(e)}, self._zero_tokens()
 
     # ── 一键解释 ──────────────────────────────────────────────────────────────
 
@@ -255,33 +262,35 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     _EXPLAIN_RETRY = "请直接输出 JSON，不要加任何 markdown 代码块或其他文字。"
 
-    def explain(self, images: list[str], extra_text: str = "") -> dict:
+    def explain(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_explain_prompt()},
                 {"role": "user", "content": self._image_content(images, "请解释这些内容：", extra_text)},
             ]
-            content, _, _ = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
+            content, _, raw_tokens = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
             result = parse_json(content)
             for k, v in self._EXPLAIN_DEFAULTS.items():
                 result.setdefault(k, v)
-            return result
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._EXPLAIN_DEFAULTS, "error": str(e)}
+            return {**self._EXPLAIN_DEFAULTS, "error": str(e)}, self._zero_tokens()
 
-    def explain_article(self, text: str) -> dict:
+    def explain_article(self, text: str) -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_explain_prompt()},
                 {"role": "user", "content": f"请解释以下内容：\n\n{text[:8000]}"},
             ]
-            content, _, _ = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
+            content, _, raw_tokens = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
             result = parse_json(content)
             for k, v in self._EXPLAIN_DEFAULTS.items():
                 result.setdefault(k, v)
-            return result
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._EXPLAIN_DEFAULTS, "error": str(e)}
+            return {**self._EXPLAIN_DEFAULTS, "error": str(e)}, self._zero_tokens()
 
     # ── 求出处 ────────────────────────────────────────────────────────────────
 
@@ -292,7 +301,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         "reference_image_urls": [],
     }
 
-    def source_find(self, images: list[str], extra_text: str = "") -> dict:
+    def source_find(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
             set_source_image(images[0] if images else None)
             from config.manager import load as _load_cfg
@@ -302,7 +311,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "system", "content": get_source_prompt()},
                 {"role": "user", "content": self._image_content(images, "请识别这张截图来自哪部作品：", extra_text)},
             ]
-            content, search_log, tokens = self._tool_loop(
+            content, search_log, raw_tokens = self._tool_loop(
                 messages, 2048, _SOURCE_RETRY_PROMPT, tools=_active_tools
             )
             result = parse_json(content)
@@ -321,33 +330,35 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             elif not result.get("source_page_urls"):
                 result["source_page_urls"] = []
             result["_search_log"] = search_log
-            result["_token_usage"] = tokens
+            result["_token_usage"] = raw_tokens
             result["_vision_used"] = _active_tools is SOURCE_TOOLS
-            return result
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}
+            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}, self._zero_tokens()
         finally:
             set_source_image(None)
 
-    def source_find_article(self, text: str) -> dict:
+    def source_find_article(self, text: str) -> tuple[dict, dict]:
         try:
             messages = [
                 {"role": "system", "content": get_source_prompt()},
                 {"role": "user", "content": [{"type": "text", "text": f"请根据以下描述识别来自哪部作品：\n\n{text[:4000]}"}]},
             ]
-            content, search_log, tokens = self._tool_loop(messages, 2048, _SOURCE_RETRY_PROMPT)
+            content, search_log, raw_tokens = self._tool_loop(messages, 2048, _SOURCE_RETRY_PROMPT)
             result = parse_json(content)
             for k, v in self._SOURCE_DEFAULTS.items():
                 result.setdefault(k, v)
             result["_search_log"] = search_log
-            result["_token_usage"] = tokens
-            return result
+            result["_token_usage"] = raw_tokens
+            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
         except Exception as e:
-            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}
+            return {**self._SOURCE_DEFAULTS, "error": f"{type(e).__name__}: {e}"}, self._zero_tokens()
 
 
-    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> str:
-        """Plain-text follow-up conversation with optional web_search. Returns response string."""
+    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> tuple[str, dict]:
+        """Plain-text follow-up conversation with optional web_search. Returns (response, token_dict)."""
         messages = [
             {"role": "system", "content": get_follow_up_prompt(mode)},
             {"role": "user", "content": f"【分析背景】\n{context_text}"},
@@ -359,6 +370,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         messages.append({"role": "user", "content": question})
         try:
             choice = None
+            total_in = total_out = 0
             for _ in range(MAX_TOOL_ROUNDS):
                 resp = self._create_with_retry(
                     model=self._model,
@@ -367,15 +379,20 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     tool_choice="auto",
                     max_tokens=1500,
                 )
+                if resp.usage:
+                    total_in += resp.usage.prompt_tokens or 0
+                    total_out += resp.usage.completion_tokens or 0
                 choice = resp.choices[0]
                 if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
                     break
                 messages.append(choice.message)
                 for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls):
                     messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-            return (choice.message.content if choice and choice.message else None) or "（无回复）"
+            text = (choice.message.content if choice and choice.message else None) or "（无回复）"
+            token_dict = {"model": self._model, "input": total_in, "output": total_out}
+            return text, token_dict
         except Exception as e:
-            return f"追问失败：{type(e).__name__}: {e}"
+            return f"追问失败：{type(e).__name__}: {e}", self._zero_tokens()
 
 
 def _error_result(error_msg: str) -> dict:

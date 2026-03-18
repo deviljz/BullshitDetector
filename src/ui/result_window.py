@@ -209,11 +209,13 @@ class ResultWindow(QWidget):
     _follow_up_received = pyqtSignal(str, str)           # (question, answer)
 
     def __init__(self, result: dict, position: tuple | None = None, images=None, image=None,
-                 history_id: str | None = None, chat_history: list | None = None):
+                 history_id: str | None = None, chat_history: list | None = None,
+                 session_id: str | None = None):
         super().__init__()
         self._result = result
         self._position = position
         self._history_id = history_id
+        self._session_id = session_id
         # images 优先；image 为旧调用兼容
         if images is not None:
             self._images: list = images if isinstance(images, list) else [images]
@@ -1198,6 +1200,16 @@ class ResultWindow(QWidget):
         if self._chat_quick_widget:
             layout.addWidget(self._chat_quick_widget)
 
+        # 熔断警告标签（默认隐藏，context 过大时显示）
+        self._fuse_warning = QLabel()
+        self._fuse_warning.setWordWrap(True)
+        self._fuse_warning.setStyleSheet(
+            "QLabel { background: #3d2800; color: #f9e2af; font-size: 11px;"
+            " border: 1px solid #f9e2af; border-radius: 6px; padding: 4px 8px; }"
+        )
+        self._fuse_warning.hide()
+        layout.addWidget(self._fuse_warning)
+
         # 输入行
         input_row = QHBoxLayout()
         input_row.setSpacing(6)
@@ -1271,10 +1283,22 @@ class ResultWindow(QWidget):
 
         result = self._result
         history = list(self._follow_up_history)
+        session_id = self._session_id
+
+        # 检查 context 熔断
+        from ai.analyzer import check_context_fuse
+        fuse_triggered, estimated = check_context_fuse(result, self._images if self._images else None)
+        if fuse_triggered:
+            wan = round(estimated / 10000, 1)
+            self._fuse_warning.setText(f"⚠️ 原文较长（约 {wan} 万 tokens），已跳过原文以节省 token")
+            self._fuse_warning.show()
+            images_for_call = None
+        else:
+            images_for_call = None  # follow_up itself doesn't pass images; fuse only affects context text
 
         def _call():
             from ai.analyzer import follow_up_text
-            resp = follow_up_text(result, history, text)
+            resp = follow_up_text(result, history, text, session_id=session_id)
             self._follow_up_received.emit(text, resp)
 
         threading.Thread(target=_call, daemon=True).start()
@@ -1334,6 +1358,8 @@ class ResultWindow(QWidget):
         self._history_id = history_id
         self._follow_up_history = list(chat_history) if chat_history else []
         self._loading_label = None
+        if hasattr(self, "_fuse_warning"):
+            self._fuse_warning.hide()
 
         # 移除旧卡片（始终在 index 0），立即解除父子关系避免延迟重绘
         item = self._root_h.takeAt(0)

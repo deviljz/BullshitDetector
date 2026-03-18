@@ -2,6 +2,7 @@ import sys
 import threading
 import logging
 import traceback
+import uuid
 from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
@@ -102,6 +103,10 @@ class BullshitDetectorApp:
         history_action.triggered.connect(self._open_history)
         menu.addAction(history_action)
 
+        usage_action = QAction("用量统计", menu)
+        usage_action.triggered.connect(self._open_usage)
+        menu.addAction(usage_action)
+
         menu.addSeparator()
 
         quit_action = QAction("退出", menu)
@@ -147,7 +152,14 @@ class BullshitDetectorApp:
         self._loading = LoadingOverlay(mode)
         self._loading.show()
         # 各线程在启动时各自捕获 images/loading/position，避免并发覆盖
-        captured = {"images": [image], "loading": self._loading, "position": position}
+        session_id = str(uuid.uuid4())
+        _mode_for_usage = {"summarize": "summary", "explain": "explain", "source": "source"}.get(mode, "analyze")
+        try:
+            import usage
+            usage.create_session(session_id, _mode_for_usage)
+        except Exception:
+            pass
+        captured = {"images": [image], "loading": self._loading, "position": position, "session_id": session_id}
         if mode == "summarize":
             target = self._run_summary
         elif mode == "explain":
@@ -159,25 +171,29 @@ class BullshitDetectorApp:
         threading.Thread(target=target, args=(b64, captured), daemon=True).start()
 
     def _run_analysis(self, image_base64: str, captured: dict):
-        result = analyze_screenshot([image_base64])
+        session_id = captured.get("session_id")
+        result = analyze_screenshot([image_base64], session_id=session_id)
         self._busy = False
         self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_summary(self, image_base64: str, captured: dict):
         from ai.analyzer import summarize_screenshot
-        result = summarize_screenshot([image_base64])
+        session_id = captured.get("session_id")
+        result = summarize_screenshot([image_base64], session_id=session_id)
         self._busy = False
         self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_explain(self, image_base64: str, captured: dict):
         from ai.analyzer import explain_screenshot
-        result = explain_screenshot([image_base64])
+        session_id = captured.get("session_id")
+        result = explain_screenshot([image_base64], session_id=session_id)
         self._busy = False
         self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
     def _run_source_find(self, image_base64: str, captured: dict):
         from ai.analyzer import source_find_screenshot
-        result = source_find_screenshot([image_base64])
+        session_id = captured.get("session_id")
+        result = source_find_screenshot([image_base64], session_id=session_id)
         self._busy = False
         self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
@@ -193,18 +209,25 @@ class BullshitDetectorApp:
         images = dlg.get_images()
         loading = LoadingOverlay(mode)
         loading.show()
+        session_id = str(uuid.uuid4())
+        _mode_for_usage = {"summarize": "summary", "explain": "explain", "source": "source"}.get(mode, "analyze")
+        try:
+            import usage
+            usage.create_session(session_id, _mode_for_usage)
+        except Exception:
+            pass
         if images:
             from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot, source_find_screenshot
             b64_list = [image_to_base64(img) for img in images]
             extra = dlg.get_text()  # 可能为空，有文字则一起发给 AI
             if mode == "summarize":
-                fn = lambda: summarize_screenshot(b64_list, extra)
+                fn = lambda: summarize_screenshot(b64_list, extra, session_id=session_id)
             elif mode == "explain":
-                fn = lambda: explain_screenshot(b64_list, extra)
+                fn = lambda: explain_screenshot(b64_list, extra, session_id=session_id)
             elif mode == "source":
-                fn = lambda: source_find_screenshot(b64_list, extra)
+                fn = lambda: source_find_screenshot(b64_list, extra, session_id=session_id)
             else:
-                fn = lambda: analyze_screenshot(b64_list, extra)
+                fn = lambda: analyze_screenshot(b64_list, extra, session_id=session_id)
         else:
             images = None
             text = dlg.get_text()
@@ -213,15 +236,15 @@ class BullshitDetectorApp:
                 return
             if mode == "summarize":
                 from ai.analyzer import summarize_text
-                fn = lambda: summarize_text(text)
+                fn = lambda: summarize_text(text, session_id=session_id)
             elif mode == "explain":
                 from ai.analyzer import explain_text
-                fn = lambda: explain_text(text)
+                fn = lambda: explain_text(text, session_id=session_id)
             elif mode == "source":
                 from ai.analyzer import source_find_text
-                fn = lambda: source_find_text(text)
+                fn = lambda: source_find_text(text, session_id=session_id)
             else:
-                fn = lambda: analyze_text(text)
+                fn = lambda: analyze_text(text, session_id=session_id)
         threading.Thread(
             target=lambda: self.signals.show_result.emit(fn(), None, loading, images),
             daemon=True,
@@ -262,6 +285,19 @@ class BullshitDetectorApp:
         except Exception:
             return None
 
+    def _open_usage(self):
+        from ui.usage_window import UsageWindow
+        from PyQt6.QtWidgets import QApplication
+        if not hasattr(self, "_usage_window") or not self._usage_window.isVisible():
+            self._usage_window = UsageWindow()
+            screen = QApplication.primaryScreen().availableGeometry()
+            uw = self._usage_window
+            x = screen.left() + (screen.width() - uw.width()) // 2
+            y = screen.top() + (screen.height() - uw.height()) // 2
+            uw.move(x, y)
+        self._usage_window.show()
+        self._usage_window.raise_()
+
     def _show_result(self, result: dict, position, loading=None, images=None):
         if loading:
             loading.close()
@@ -271,7 +307,8 @@ class BullshitDetectorApp:
         # 清理已关闭的旧窗口
         self._result_windows = [w for w in self._result_windows if w.isVisible()]
         history_id = hs.add(result, thumbnail=self._make_thumbnail(images))
-        win = ResultWindow(result, position, images=images, history_id=history_id)
+        session_id = str(uuid.uuid4())
+        win = ResultWindow(result, position, images=images, history_id=history_id, session_id=session_id)
         # 有已打开的窗口时向右下偏移，避免完全重叠
         if self._result_windows and position is None:
             last = self._result_windows[-1]
