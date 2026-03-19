@@ -67,6 +67,10 @@ class UsageWindow(QWidget):
         self.setWindowTitle("用量统计")
         self.resize(900, 700)
         self.setMinimumSize(600, 450)
+        self.setStyleSheet(
+            "QToolTip { background: #313244; color: #cdd6f4;"
+            " border: 1px solid #45475a; padding: 6px; font-size: 12px; }"
+        )
 
     def _init_ui(self):
         outer = QVBoxLayout(self)
@@ -233,7 +237,7 @@ class UsageWindow(QWidget):
         color_iter = iter(_MODEL_COLORS)
         area_series_list = []
         # 轴右端点：最后一天 T02:00，延伸点与轴终点对齐，让悬崖落在不可见的轴边界
-        ms_end = QDateTime.fromString(dates[-1] + "T02:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+        ms_end = QDateTime.fromString(dates[-1] + "T00:10:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
 
         # 每天独立用量（非累计）
         model_daily = {}  # {date: {model: tokens}}
@@ -287,7 +291,7 @@ class UsageWindow(QWidget):
         axis_x.setGridLineColor(QColor("#313244"))
         axis_x.setTickCount(max(2, len(dates)))
         min_dt = QDateTime.fromString(dates[0] + "T00:00:00", Qt.DateFormat.ISODate)
-        max_dt = QDateTime.fromString(dates[-1] + "T02:00:00", Qt.DateFormat.ISODate)
+        max_dt = QDateTime.fromString(dates[-1] + "T00:10:00", Qt.DateFormat.ISODate)
         axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
@@ -297,7 +301,7 @@ class UsageWindow(QWidget):
         axis_y.setLabelsColor(QColor("#6c7086"))
         axis_y.setGridLineColor(QColor("#313244"))
         axis_y.setLabelFormat("%d")
-        axis_y.setRange(0, max_y * 1.05)
+        axis_y.setRange(0, max_y * 1.1)
         self._chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
 
         for area in area_series_list:
