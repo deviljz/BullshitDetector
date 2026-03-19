@@ -292,10 +292,13 @@ class UsageWindow(QWidget):
         axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
+        # 手动计算 Y 轴最大值（堆叠累计最后一天的总和）
+        max_y = sum(model_cumul_by_date[dates[-1]][m] for m in models_list)
         axis_y = QValueAxis()
         axis_y.setLabelsColor(QColor("#6c7086"))
         axis_y.setGridLineColor(QColor("#313244"))
         axis_y.setLabelFormat("%d")
+        axis_y.setRange(0, max_y * 1.05)
         self._chart.addAxis(axis_y, Qt.AlignmentFlag.AlignLeft)
 
         for area in area_series_list:
