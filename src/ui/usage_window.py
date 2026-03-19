@@ -232,34 +232,43 @@ class UsageWindow(QWidget):
         self._line_series_refs = []
         color_iter = iter(_MODEL_COLORS)
         area_series_list = []
+        ms_end = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
 
-        cumulative = {d: 0 for d in dates}
+        # 预计算每个模型在每天的【累计】token 总量（running sum，只增不减）
+        running = {m: 0 for m in models_list}
+        model_cumul_by_date = {}  # {date: {model: cumulative_total}}
+        for date_str in dates:
+            day_data = daily.get(date_str, {})
+            for m in models_list:
+                md = day_data.get(m, {"input": 0, "output": 0})
+                running[m] += md["input"] + md["output"]
+            model_cumul_by_date[date_str] = dict(running)
+
+        # 堆叠面积图：每层的下界 = 前面所有模型的累计之和
+        stack_base = {d: 0 for d in dates}
 
         for model in models_list:
             color = next(color_iter, "#cdd6f4")
-
             upper_series = QLineSeries()
             lower_series = QLineSeries()
             self._line_series_refs.extend([upper_series, lower_series])
 
             last_lo = last_hi = 0
             for date_str in dates:
-                # 每天用当天开头，相邻天之间连线形成曲线感
-                ms_mid = QDateTime.fromString(date_str + "T00:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
-                day_data = daily.get(date_str, {})
-                model_data = day_data.get(model, {"input": 0, "output": 0})
-                total = model_data["input"] + model_data["output"]
-                lo = cumulative[date_str]
-                hi = lo + total
-                lower_series.append(ms_mid, lo)
-                upper_series.append(ms_mid, hi)
-                cumulative[date_str] = hi
+                ms = QDateTime.fromString(date_str + "T00:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+                lo = stack_base[date_str]
+                hi = lo + model_cumul_by_date[date_str][model]
+                lower_series.append(ms, lo)
+                upper_series.append(ms, hi)
                 last_lo, last_hi = lo, hi
 
-            # 延伸到轴终点（最后一天末尾），避免右侧出现空白悬崖
-            ms_end = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+            # 延伸到轴终点，消除右侧悬崖
             lower_series.append(ms_end, last_lo)
             upper_series.append(ms_end, last_hi)
+
+            # 更新下一层模型的堆叠基线
+            for date_str in dates:
+                stack_base[date_str] += model_cumul_by_date[date_str][model]
 
             area = QAreaSeries(upper_series, lower_series)
             area.setName(model)
