@@ -244,24 +244,9 @@ def _build_article_prompt(t: dict) -> str:
 
 ## 搜索策略（必须执行）
 
-**除明确违背基础科学/物理常识可直接宣判外，第一个动作必须是调用 web_search 核查文章中的核心数据或声明。**
+**除明确违背基础科学可直接宣判外，第一个动作必须是 web_search，提取 1-3 条核心数据/声明独立搜索（中英文各至少1次，至少2轮交叉验证）。**
 
-1. 提取文章中最核心的 1-3 个可验证数据点或声明作为搜索关键词
-2. 中英文各搜索一次
-3. 至少搜索 2 轮，交叉验证
-
-## 来源分类与信源独立性（搜索时同步执行）
-
-对每条搜索结果进行来源分类：
-- **primary**：政府机构、官方统计数据、法院文书、公司财报、学术期刊原文
-- **independent**：独立媒体/学术机构的原创报道（非转载）
-- **syndicated**：转载/聚合自其他来源（注明原始来源）
-- **self_reported**：当事方自述（采访、新闻稿、公告、PR 稿）
-
-**信源独立性规则**（决定 effective_sources 计数）：
-- 多个来源措辞高度雷同、发布时间集中 → 同源转载，仅算 1 个有效信源
-- 全部来源为 self_reported → verdict 只能填"官方自述"，**不得**填"独立核实属实"
-- 有 primary 或 independent 来源支持 → verdict 可填"独立核实属实"
+**来源分类**（同步执行）：primary=政府/财报/学术原文 / independent=独立媒体原创 / syndicated=转载 / self_reported=当事方自述。措辞雷同+集中发布→同源转载仅算1个有效信源；全部 self_reported→verdict 只能填"官方自述"；有 primary/independent→可填"独立核实属实"。
 
 ---
 
@@ -275,18 +260,11 @@ def _build_article_prompt(t: dict) -> str:
 
 ---
 
-## 判断决策树
+## 判断参考
 
-### Step 1: 语言风格初筛
-煽动性词汇（"颠覆""革命""史诗级""必看""震惊"）、绝对化表述（"所有人都...""彻底改变..."）、匿名信源 → 立即标记高度可疑，bullshit_index 基准值 >= 55
+**语言风格初筛**：煽动词汇（"颠覆""革命""史诗级""必看""震惊"）、绝对化表述（"所有人都...""彻底改变..."）、匿名信源 → bullshit_index 基准值 ≥ 55
 
-### Step 2: 铁律三连击
-- 铁律一：核心数据/结论有无原始来源
-- 铁律二：技术声明是否符合行业共识
-- 铁律三：物理/常识守门
-
-### Step 3: 文章专项检查
-评估 hype_check / missing_info / intent_check 三个维度
+**文章专项检查**：评估 hype_check / missing_info / intent_check 三个维度
 
 ---
 
@@ -305,10 +283,10 @@ def _build_article_prompt(t: dict) -> str:
 
 ## 四维雷达评分标准（radar_chart，每项 0-5 分）
 
-- **logic_consistency（逻辑自洽）**：论点与论据是否自洽，推论是否合理。5=逻辑严密，0=漏洞百出
-- **source_authority（来源权威）**：引用来源是否权威可核实。5=权威原文可查，0=匿名来源或查无此处
-- **agitation_level（煽动烈度）**：情绪操纵与夸大程度。0=中性客观，5=极度煽动/夸大
-- **search_match（搜索核实）**：核心数据/声明能否被搜索证实。5=完全核实，0=完全查无此事
+- **logic_consistency**（逻辑自洽）：论点与论据是否自洽
+- **source_authority**（来源权威）：引用来源是否权威可核实
+- **agitation_level**（煽动烈度）：情绪操纵与夸大程度（0=中性，5=极度煽动）
+- **search_match**（搜索核实）：核心数据/声明能否被搜索证实
 
 ---
 
@@ -318,8 +296,7 @@ def _build_article_prompt(t: dict) -> str:
 1. {t['self_audit_review']}
 2. **claim_verification 检查**：必须逐条列出文章中的核心可验证声明（至少1条，最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported→官方自述），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据
 3. {t['self_audit_summary']}
-4. **bullshit_index 与 risk_level 一致性**：确保两者匹配（见下方映射规则）
-5. **⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。
+4. **⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。
 
 ---
 
@@ -358,8 +335,7 @@ def _build_article_prompt(t: dict) -> str:
     "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图"
   }},
   "claim_verification": [
-    {{"claim": "文章核心声明1（一句话概括）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}},
-    {{"claim": "文章核心声明2（如有多个独立声明分别列出）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
+    {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
   ],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
