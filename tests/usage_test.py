@@ -59,10 +59,38 @@ print("  PASS: get_daily_totals structure correct")
 
 # ── Test 4: UsageWindow screenshot ──────────────────────────────────────────
 print("\n=== Test 4: UsageWindow screenshot ===")
-# Add a second session for richer UI
-sid2 = str(uuid.uuid4())
-usage_mod.create_session(sid2, "summary")
-usage_mod.record_call(sid2, "summarize", "gemini-2.5-flash", 900, 250)
+# 补充各模式估算数据（仅数值，与历史记录一致：summary/explain/analyze，无追问）
+sid_sum1 = str(uuid.uuid4())
+usage_mod.create_session(sid_sum1, "summary")
+usage_mod.record_call(sid_sum1, "summary", "gemini-2.5-flash", 1150, 320)
+
+sid_exp1 = str(uuid.uuid4())
+usage_mod.create_session(sid_exp1, "explain")
+usage_mod.record_call(sid_exp1, "explain", "gemini-2.5-flash", 1820, 410)
+
+sid_exp2 = str(uuid.uuid4())
+usage_mod.create_session(sid_exp2, "explain")
+usage_mod.record_call(sid_exp2, "explain", "gemini-2.5-flash", 1760, 390)
+
+sid_sum2 = str(uuid.uuid4())
+usage_mod.create_session(sid_sum2, "summary")
+usage_mod.record_call(sid_sum2, "summary", "gemini-2.5-flash", 980, 270)
+
+sid_ana1 = str(uuid.uuid4())
+usage_mod.create_session(sid_ana1, "analyze")
+usage_mod.record_call(sid_ana1, "analyze", "gemini-2.5-flash", 4620, 1180)
+
+sid_sum3 = str(uuid.uuid4())
+usage_mod.create_session(sid_sum3, "summary")
+usage_mod.record_call(sid_sum3, "summary", "gemini-2.5-flash", 1050, 300)
+
+sid_ana2 = str(uuid.uuid4())
+usage_mod.create_session(sid_ana2, "analyze")
+usage_mod.record_call(sid_ana2, "analyze", "gemini-2.5-flash", 4890, 1240)
+
+sid_sum4 = str(uuid.uuid4())
+usage_mod.create_session(sid_sum4, "summary")
+usage_mod.record_call(sid_sum4, "summary", "gemini-2.5-flash", 1100, 290)
 
 from PyQt6.QtWidgets import QApplication
 app = QApplication.instance() or QApplication(sys.argv)
