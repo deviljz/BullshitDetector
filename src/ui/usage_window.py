@@ -312,8 +312,7 @@ class UsageWindow(QWidget):
 
     def _on_chart_hover(self, point, state: bool):
         if not state:
-            QToolTip.hideText()
-            return
+            return  # 不主动 hide，让 Qt 自然消失
         dt = QDateTime.fromMSecsSinceEpoch(int(point.x()))
         date_str = dt.toString("yyyy-MM-dd")
         day_data = getattr(self, "_daily_data", {}).get(date_str, {})
