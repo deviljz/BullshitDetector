@@ -427,12 +427,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             result["_subtype"] = subtype
             for k, v in self._SOURCE_DEFAULTS.items():
                 result.setdefault(k, v)
-            # Vision API 的视觉相似图优先；AI 自填的 URL 只作无 Vision 时的 fallback
+            # 参考图只用 Vision API 精确/部分匹配结果（visual_similar 已在 tools.py 过滤）
+            # 模型自填的 URL 不可信（web_search 无法返回真实图片 URL），一律忽略
             vision_urls = get_last_vision_urls()
-            if vision_urls:
-                result["reference_image_urls"] = vision_urls
-            elif not result.get("reference_image_urls"):
-                result["reference_image_urls"] = []
+            result["reference_image_urls"] = vision_urls if vision_urls else []
             # 作品来源页面链接（来自 Vision pagesWithMatchingImages）
             page_urls = get_last_vision_page_urls()
             if page_urls:

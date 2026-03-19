@@ -703,7 +703,7 @@ def _source_anime_prompt() -> str:
   "characters": ["仅填已确认的角色中文名"],
   "confidence": "high/medium/low",
   "note": "搜索过程完整记录：每次搜索的关键词、找到什么结果、如何确认作品身份（100字以上）",
-  "reference_image_urls": ["搜索过程中找到的图片URL，最多3个，找不到留空数组"],
+  "reference_image_urls": [],
   "source_page_urls": [
     {{"title": "页面标题", "url": "https://..."}}
   ],
@@ -1019,7 +1019,7 @@ def _get_source_prompt_legacy() -> str:
   "characters": ["仅填已确认的角色名，不确定留空数组"],
   "confidence": "high/medium/low",
   "note": "补充说明：搜索到的佐证、或不确定之处",
-  "reference_image_urls": ["搜索过程中找到的该作品图片URL（最多3个，找不到留空数组）"]
+  "reference_image_urls": []
 }}
 
 found=false 时：其余字段均留空字符串/空数组，media_type="other"，confidence="low"，必填：scene（图中实际内容描述）、note（无法识别原因及内容性质，如：社交媒体截图/AI生成/真实照片）。

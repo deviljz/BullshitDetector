@@ -2,10 +2,10 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTreeWidget, QTreeWidgetItem, QSizeGrip,
+    QFrame, QTreeWidget, QTreeWidgetItem, QSizeGrip, QToolTip,
 )
 from PyQt6.QtCore import Qt, QPoint, QDateTime, QMargins
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont, QColor, QCursor
 
 try:
     from PyQt6.QtCharts import (
@@ -228,6 +228,7 @@ class UsageWindow(QWidget):
         # Build one AreaSeries per model (stacked)
         # Keep all series refs on self to prevent Python GC from collecting them
         # while Qt still holds C++ pointers (segfault cause).
+        self._daily_data = daily  # 存储供 hover tooltip 使用
         self._line_series_refs = []
         color_iter = iter(_MODEL_COLORS)
         area_series_list = []
@@ -242,24 +243,22 @@ class UsageWindow(QWidget):
             self._line_series_refs.extend([upper_series, lower_series])
 
             for date_str in dates:
-                # 每天用首尾两个时间点，形成矩形色块而非斜线
-                ms_s = QDateTime.fromString(date_str + "T00:00:01", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
-                ms_e = QDateTime.fromString(date_str + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+                # 每天用正午单点，相邻天之间画斜线，有曲线感
+                ms_mid = QDateTime.fromString(date_str + "T12:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
                 day_data = daily.get(date_str, {})
                 model_data = day_data.get(model, {"input": 0, "output": 0})
                 total = model_data["input"] + model_data["output"]
                 lo = cumulative[date_str]
                 hi = lo + total
-                lower_series.append(ms_s, lo)
-                lower_series.append(ms_e, lo)
-                upper_series.append(ms_s, hi)
-                upper_series.append(ms_e, hi)
+                lower_series.append(ms_mid, lo)
+                upper_series.append(ms_mid, hi)
                 cumulative[date_str] = hi
 
             area = QAreaSeries(upper_series, lower_series)
             area.setName(model)
             area.setColor(QColor(color))
             area.setBorderColor(QColor(color))
+            area.hovered.connect(self._on_chart_hover)
             area_series_list.append(area)
 
         for area in area_series_list:
@@ -287,6 +286,25 @@ class UsageWindow(QWidget):
             area.attachAxis(axis_y)
 
         self._chart.setTitle("")
+
+    def _on_chart_hover(self, point, state: bool):
+        if not state:
+            QToolTip.hideText()
+            return
+        dt = QDateTime.fromMSecsSinceEpoch(int(point.x()))
+        date_str = dt.toString("yyyy-MM-dd")
+        day_data = getattr(self, "_daily_data", {}).get(date_str, {})
+        lines = [f"📅 {date_str}"]
+        total_in = total_out = 0
+        for model, data in sorted(day_data.items()):
+            inp = data.get("input", 0)
+            out = data.get("output", 0)
+            lines.append(f"  {model}：{_fmt_tokens(inp)}↑  {_fmt_tokens(out)}↓")
+            total_in += inp
+            total_out += out
+        if day_data:
+            lines.append(f"合计：{_fmt_tokens(total_in + total_out)} tokens")
+        QToolTip.showText(QCursor.pos(), "\n".join(lines), self._chart_view)
 
     def _refresh_tree(self, sessions: list):
         self._tree.clear()
