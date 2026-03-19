@@ -232,7 +232,8 @@ class UsageWindow(QWidget):
         self._line_series_refs = []
         color_iter = iter(_MODEL_COLORS)
         area_series_list = []
-        ms_end = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+        # 轴右端点：最后一天 T02:00，延伸点与轴终点对齐，让悬崖落在不可见的轴边界
+        ms_end = QDateTime.fromString(dates[-1] + "T02:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
 
         # 预计算每个模型在每天的【累计】token 总量（running sum，只增不减）
         running = {m: 0 for m in models_list}
@@ -262,7 +263,7 @@ class UsageWindow(QWidget):
                 upper_series.append(ms, hi)
                 last_lo, last_hi = lo, hi
 
-            # 延伸到轴终点，消除右侧悬崖
+            # 延伸到轴终点（T02:00），让闭合竖线落在轴边界处不可见
             lower_series.append(ms_end, last_lo)
             upper_series.append(ms_end, last_hi)
 
@@ -287,8 +288,7 @@ class UsageWindow(QWidget):
         axis_x.setGridLineColor(QColor("#313244"))
         axis_x.setTickCount(max(2, len(dates)))
         min_dt = QDateTime.fromString(dates[0] + "T00:00:00", Qt.DateFormat.ISODate)
-        max_dt = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate)
-        axis_x.setTickCount(max(2, len(dates)))
+        max_dt = QDateTime.fromString(dates[-1] + "T02:00:00", Qt.DateFormat.ISODate)
         axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
