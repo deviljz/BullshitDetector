@@ -421,7 +421,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": user_content},
             ]
             content, search_log, raw_tokens = self._tool_loop(
-                messages, 2048, _SOURCE_RETRY_PROMPT, tools=_active_tools
+                messages, 4096, _SOURCE_RETRY_PROMPT, tools=_active_tools
             )
             result = parse_json(content)
             result["_subtype"] = subtype
@@ -462,7 +462,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "system", "content": get_source_prompt(subtype=subtype)},
                 {"role": "user", "content": [{"type": "text", "text": text_content}]},
             ]
-            content, search_log, raw_tokens = self._tool_loop(messages, 2048, _SOURCE_RETRY_PROMPT)
+            content, search_log, raw_tokens = self._tool_loop(messages, 4096, _SOURCE_RETRY_PROMPT)
             result = parse_json(content)
             result["_subtype"] = subtype
             for k, v in self._SOURCE_DEFAULTS.items():

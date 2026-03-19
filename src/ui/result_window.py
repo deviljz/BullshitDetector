@@ -1774,6 +1774,7 @@ class ResultWindow(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self.setWindowOpacity(1.0)  # 首帧渲染完成后才显示，消除白色闪烁
+        self.raise_()          # Windows 上 activateWindow 单独调用常被系统忽略
         self.activateWindow()
         self.setFocus()
 
