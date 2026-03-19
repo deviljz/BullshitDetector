@@ -239,19 +239,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             return {**self._SUMMARY_DEFAULTS, "error": str(e)}, self._zero_tokens()
 
     def summarize_article(self, text: str) -> tuple[dict, dict]:
-        try:
-            messages = [
-                {"role": "system", "content": get_summary_prompt()},
-                {"role": "user", "content": f"请总结以下内容：\n\n{text[:8000]}"},
-            ]
-            content, _, raw_tokens = self._tool_loop(messages, 2048, self._SUMMARY_RETRY, force_first_tool=False)
-            result = parse_json(content)
-            for k, v in self._SUMMARY_DEFAULTS.items():
-                result.setdefault(k, v)
-            token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
-            return result, token_dict
-        except Exception as e:
-            return {**self._SUMMARY_DEFAULTS, "error": str(e)}, self._zero_tokens()
+        # 文字输入内容自洽，无需 web_search，直接 _run_single 省去工具定义开销
+        return self._run_single(
+            get_summary_prompt(),
+            f"请总结以下内容：\n\n{text[:8000]}",
+            2048,
+            self._SUMMARY_DEFAULTS,
+        ), self._zero_tokens()
 
     # ── 一键解释 ──────────────────────────────────────────────────────────────
 
@@ -369,27 +363,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages.append({"role": "assistant", "content": turn["ai"]})
         messages.append({"role": "user", "content": question})
         try:
-            choice = None
-            total_in = total_out = 0
-            for _ in range(MAX_TOOL_ROUNDS):
-                resp = self._create_with_retry(
-                    model=self._model,
-                    messages=messages,
-                    tools=TOOLS,
-                    tool_choice="auto",
-                    max_tokens=1500,
-                )
-                if resp.usage:
-                    total_in += resp.usage.prompt_tokens or 0
-                    total_out += resp.usage.completion_tokens or 0
-                choice = resp.choices[0]
-                if choice.finish_reason != "tool_calls" and not choice.message.tool_calls:
-                    break
-                messages.append(choice.message)
-                for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls):
-                    messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
-            text = (choice.message.content if choice and choice.message else None) or "（无回复）"
-            token_dict = {"model": self._model, "input": total_in, "output": total_out}
+            content, _, raw = self._tool_loop(messages, 1500, force_first_tool=False)
+            text = content or "（无回复）"
+            token_dict = {"model": self._model, "input": raw["input_tokens"], "output": raw["output_tokens"]}
             return text, token_dict
         except Exception as e:
             return f"追问失败：{type(e).__name__}: {e}", self._zero_tokens()
