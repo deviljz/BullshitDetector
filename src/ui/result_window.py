@@ -497,6 +497,18 @@ class ResultWindow(QWidget):
                     n_lbl.setWordWrap(True)
                     n_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
                     claim_sec._content_layout.addWidget(n_lbl)
+                for src in c.get("sources", [])[:3]:
+                    src_url = src.get("url", "")
+                    src_title = src.get("title", "") or src_url
+                    if not src_url:
+                        continue
+                    display = src_title[:50] + ("…" if len(src_title) > 50 else "")
+                    link_lbl = QLabel(f'    <a href="{src_url}" style="color:#89b4fa;">🔗 {display}</a>')
+                    link_lbl.setTextFormat(Qt.TextFormat.RichText)
+                    link_lbl.setOpenExternalLinks(True)
+                    link_lbl.setWordWrap(True)
+                    link_lbl.setStyleSheet("font-size: 10px; padding: 1px 0;")
+                    claim_sec._content_layout.addWidget(link_lbl)
             right_col.addWidget(claim_sec)
 
         # ── 右列：破绽列表（默认展开）──────────────────────────────────────────
@@ -571,7 +583,22 @@ class ResultWindow(QWidget):
         mid_stretch, right_stretch = (33, 34) if self._image is not None else (45, 55)
         cols.addWidget(left_widget, mid_stretch)
         cols.addWidget(right_widget, right_stretch)
-        main_layout.addLayout(cols)
+
+        # ── 列区域包入滚动条 ──────────────────────────────────────────────────
+        cols_widget = QWidget()
+        cols_widget.setStyleSheet("background: transparent;")
+        cols_widget.setLayout(cols)
+        cols_scroll = QScrollArea()
+        cols_scroll.setWidget(cols_widget)
+        cols_scroll.setWidgetResizable(True)
+        cols_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        cols_scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+        main_layout.addWidget(cols_scroll, 1)
 
         # ── 底部：复制按钮（右下）+ 缩放手柄 ────────────────────────────────
         bottom_row = QHBoxLayout()
@@ -595,17 +622,37 @@ class ResultWindow(QWidget):
         headline = self._result.get("headline", "")
         core_idea = self._result.get("core_idea", "")
         key_points: list = self._result.get("key_points", [])
+        structured_outline: list = self._result.get("structured_outline", [])
+        timeline: list = self._result.get("timeline", [])
+        key_quote = self._result.get("key_quote", "")
         bias_note = self._result.get("bias_note", "")
+        content_type = self._result.get("content_type", "other")
         orig_lang = self._result.get("original_language", "zh")
         error = self._result.get("error")
 
+        _CONTENT_TYPE_CONFIG = {
+            "news":     ("新闻", "#89dceb", "#0e2430"),
+            "opinion":  ("观点", "#cba6f7", "#1e1030"),
+            "analysis": ("分析", "#f9e2af", "#2a2018"),
+            "tutorial": ("教程", "#a6e3a1", "#0f2018"),
+            "other":    ("其他", "#6c7086", "#1e1e2e"),
+        }
+
         main_layout = self._make_card()
 
-        # ── 顶栏：标题 + 语言标签 + 关闭 ───────────────────────────────────────
+        # ── 顶栏：标题 + content_type 徽章 + 语言标签 + 关闭 ────────────────────
         top_row = QHBoxLayout()
         title_lbl = QLabel("📝 内容总结")
         title_lbl.setStyleSheet("color: #a6e3a1; font-size: 16px; font-weight: bold;")
         top_row.addWidget(title_lbl)
+
+        ct_label, ct_color, ct_bg = _CONTENT_TYPE_CONFIG.get(content_type, _CONTENT_TYPE_CONFIG["other"])
+        ct_lbl = QLabel(ct_label)
+        ct_lbl.setStyleSheet(
+            f"color: {ct_color}; font-size: 11px; background: {ct_bg};"
+            f" border: 1px solid {ct_color}; border-radius: 4px; padding: 2px 8px;"
+        )
+        top_row.addWidget(ct_lbl)
 
         if orig_lang and orig_lang != "zh":
             lang_lbl = QLabel(f"原文: {orig_lang}")
@@ -626,6 +673,24 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         main_layout.addWidget(sep)
 
+        # ── 滚动区域（顶栏/分隔线固定，内容可滚动）──────────────────────────────
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+        _content_widget = QWidget()
+        _content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(_content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
+        _scroll.setWidget(_content_widget)
+        main_layout.addWidget(_scroll, 1)
+
         # ── 一句话结论 ──────────────────────────────────────────────────────────
         if error:
             hl_lbl = QLabel(f"💥 {error}")
@@ -637,7 +702,7 @@ class ResultWindow(QWidget):
                 " background: #1e1e2e; border-radius: 8px; padding: 10px 14px;"
             )
         hl_lbl.setWordWrap(True)
-        main_layout.addWidget(hl_lbl)
+        content_layout.addWidget(hl_lbl)
 
         # ── 中心思想 ────────────────────────────────────────────────────────────
         if core_idea and not error:
@@ -648,13 +713,60 @@ class ResultWindow(QWidget):
                 " background: #0f2018; border-left: 3px solid #a6e3a1;"
                 " border-radius: 4px; padding: 8px 12px;"
             )
-            main_layout.addWidget(ci_lbl)
+            content_layout.addWidget(ci_lbl)
 
-        # ── 要点列表 ────────────────────────────────────────────────────────────
-        if key_points:
+        # ── 时间线（news 类型）──────────────────────────────────────────────────
+        if timeline and content_type == "news":
+            tl_header = QLabel("⏱ 时间线")
+            tl_header.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold; padding: 4px 0 2px 0;")
+            content_layout.addWidget(tl_header)
+            for item in timeline:
+                t_time = item.get("time", "")
+                t_event = item.get("event", "")
+                if not t_event:
+                    continue
+                row = QHBoxLayout()
+                time_lbl = QLabel(t_time)
+                time_lbl.setFixedWidth(90)
+                time_lbl.setStyleSheet(
+                    "color: #89dceb; font-size: 11px; background: #0e2430;"
+                    " border-radius: 3px; padding: 2px 6px;"
+                )
+                event_lbl = QLabel(t_event)
+                event_lbl.setWordWrap(True)
+                event_lbl.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+                row.addWidget(time_lbl, 0, Qt.AlignmentFlag.AlignTop)
+                row.addWidget(event_lbl, 1)
+                content_layout.addLayout(row)
+
+        # ── 结构化大纲（analysis/tutorial 类型）────────────────────────────────
+        if structured_outline and content_type in ("analysis", "tutorial"):
+            for section in structured_outline:
+                sec_name = section.get("section", "")
+                sec_pts = section.get("points", [])
+                if not sec_name:
+                    continue
+                sec_lbl = QLabel(f"▸ {sec_name}")
+                sec_lbl.setStyleSheet("color: #a6e3a1; font-size: 13px; font-weight: bold; padding: 4px 0 2px 0;")
+                content_layout.addWidget(sec_lbl)
+                for pt in sec_pts:
+                    pt_row = QHBoxLayout()
+                    pt_row.setContentsMargins(12, 0, 0, 0)
+                    dot = QLabel("•")
+                    dot.setFixedWidth(14)
+                    dot.setStyleSheet("color: #6c7086; font-size: 12px;")
+                    pt_lbl = QLabel(pt)
+                    pt_lbl.setWordWrap(True)
+                    pt_lbl.setStyleSheet("color: #cdd6f4; font-size: 12px;")
+                    pt_row.addWidget(dot, 0, Qt.AlignmentFlag.AlignTop)
+                    pt_row.addWidget(pt_lbl, 1)
+                    content_layout.addLayout(pt_row)
+
+        # ── 要点列表（无大纲时才渲染）──────────────────────────────────────────
+        elif key_points:
             pts_lbl = QLabel("要点")
             pts_lbl.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold;")
-            main_layout.addWidget(pts_lbl)
+            content_layout.addWidget(pts_lbl)
             for pt in key_points:
                 row = QHBoxLayout()
                 dot = QLabel("▸")
@@ -665,7 +777,18 @@ class ResultWindow(QWidget):
                 txt.setStyleSheet("color: #cdd6f4; font-size: 13px;")
                 row.addWidget(dot, 0, Qt.AlignmentFlag.AlignTop)
                 row.addWidget(txt, 1)
-                main_layout.addLayout(row)
+                content_layout.addLayout(row)
+
+        # ── 关键引用（紫色块）──────────────────────────────────────────────────
+        if key_quote:
+            quote_lbl = QLabel(f'❝ {key_quote}')
+            quote_lbl.setWordWrap(True)
+            quote_lbl.setStyleSheet(
+                "color: #cba6f7; font-size: 12px; font-style: italic;"
+                " background: #1a1030; border-left: 3px solid #cba6f7;"
+                " border-radius: 4px; padding: 8px 12px;"
+            )
+            content_layout.addWidget(quote_lbl)
 
         # ── 偏向备注 ────────────────────────────────────────────────────────────
         if bias_note:
@@ -675,10 +798,10 @@ class ResultWindow(QWidget):
                 "color: #f9e2af; font-size: 12px;"
                 " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
             )
-            main_layout.addWidget(bias_lbl)
+            content_layout.addWidget(bias_lbl)
 
-        main_layout.addStretch()
-        self._append_image_preview(main_layout)
+        content_layout.addStretch()
+        self._append_image_preview(content_layout)
 
     def _init_explain_ui(self):
         _TYPE_LABEL = {
@@ -710,6 +833,23 @@ class ResultWindow(QWidget):
         )
         top_row.addWidget(type_lbl)
 
+        # still_active 徽章（仅 meme 类型）
+        if explain_type == "meme":
+            still_active = self._result.get("still_active", True)
+            if still_active:
+                sa_lbl = QLabel("🔥 仍在流行")
+                sa_lbl.setStyleSheet(
+                    "color: #a6e3a1; font-size: 11px; background: #0f2018;"
+                    " border: 1px solid #a6e3a1; border-radius: 4px; padding: 2px 8px;"
+                )
+            else:
+                sa_lbl = QLabel("📦 已过时")
+                sa_lbl.setStyleSheet(
+                    "color: #6c7086; font-size: 11px; background: #1e1e2e;"
+                    " border: 1px solid #45475a; border-radius: 4px; padding: 2px 8px;"
+                )
+            top_row.addWidget(sa_lbl)
+
         if orig_lang and orig_lang != "zh":
             lang_lbl = QLabel(f"原文: {orig_lang}")
             lang_lbl.setStyleSheet(
@@ -729,6 +869,24 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         main_layout.addWidget(sep)
 
+        # ── 滚动区域（顶栏/分隔线固定，内容可滚动）──────────────────────────────
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+        _content_widget = QWidget()
+        _content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(_content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
+        _scroll.setWidget(_content_widget)
+        main_layout.addWidget(_scroll, 1)
+
         # ── subject 大字 ─────────────────────────────────────────────────────────
         if error:
             subj_lbl = QLabel(f"💥 {error}")
@@ -739,7 +897,7 @@ class ResultWindow(QWidget):
                 "color: #89b4fa; font-size: 18px; font-weight: bold; padding: 2px 0;"
             )
         subj_lbl.setWordWrap(True)
-        main_layout.addWidget(subj_lbl)
+        content_layout.addWidget(subj_lbl)
 
         # ── 一句话回答 ───────────────────────────────────────────────────────────
         if short_answer:
@@ -749,7 +907,7 @@ class ResultWindow(QWidget):
                 "color: #cdd6f4; font-size: 15px; font-weight: bold;"
                 " background: #1e1e2e; border-radius: 8px; padding: 10px 14px;"
             )
-            main_layout.addWidget(ans_lbl)
+            content_layout.addWidget(ans_lbl)
 
         # ── 多角色列表 ───────────────────────────────────────────────────────────
         characters = self._result.get("characters", [])
@@ -785,27 +943,54 @@ class ResultWindow(QWidget):
                         ch = characters[idx]
                         img_row = idx // grid_cols_img + 1
                         img_col = idx % grid_cols_img + 1
-                        name_label = f"{img_row}行{img_col}列 {ch.get('name', '')}"
+                        # 支持 multi_grid 直接提供 row/col 字段
+                        if ch.get("row") and ch.get("col"):
+                            name_label = f"{ch['row']}行{ch['col']}列 {ch.get('name', '')}"
+                        else:
+                            name_label = f"{img_row}行{img_col}列 {ch.get('name', '')}"
                         table.setItem(row_i, col_pair * 2,     QTableWidgetItem(name_label))
                         table.setItem(row_i, col_pair * 2 + 1, QTableWidgetItem(ch.get("work", "")))
             HEADER_H = 28
             max_visible = 13
             table.setFixedHeight(HEADER_H + ROW_H * min(n_rows, max_visible))
-            main_layout.addWidget(table)
+            content_layout.addWidget(table)
 
         # ── 详细说明 ─────────────────────────────────────────────────────────────
         if detail:
             detail_lbl = QLabel(detail)
             detail_lbl.setWordWrap(True)
             detail_lbl.setStyleSheet("color: #a6adc8; font-size: 13px; padding: 4px 0;")
-            main_layout.addWidget(detail_lbl)
+            content_layout.addWidget(detail_lbl)
+
+        # ── 为何出名（real_person 专用）─────────────────────────────────────────
+        known_for = self._result.get("known_for", "")
+        if known_for:
+            kf_lbl = QLabel(f"⭐ 出名原因：{known_for}")
+            kf_lbl.setWordWrap(True)
+            kf_lbl.setStyleSheet("color: #f9e2af; font-size: 12px; padding: 2px 0;")
+            content_layout.addWidget(kf_lbl)
+
+        current_status = self._result.get("current_status", "")
+        if current_status:
+            cs_lbl = QLabel(f"📍 当前状态：{current_status}")
+            cs_lbl.setWordWrap(True)
+            cs_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 2px 0;")
+            content_layout.addWidget(cs_lbl)
+
+        # ── 产品规格（product 专用）──────────────────────────────────────────────
+        product_specs = self._result.get("product_specs", "")
+        if product_specs:
+            ps_lbl = QLabel(f"📋 规格：{product_specs}")
+            ps_lbl.setWordWrap(True)
+            ps_lbl.setStyleSheet("color: #89dceb; font-size: 12px; padding: 2px 0;")
+            content_layout.addWidget(ps_lbl)
 
         # ── 来源/出处 ────────────────────────────────────────────────────────────
         if origin:
             orig_lbl = QLabel(f"📌 来源：{origin}")
             orig_lbl.setWordWrap(True)
             orig_lbl.setStyleSheet("color: #6c7086; font-size: 12px; padding: 2px 0;")
-            main_layout.addWidget(orig_lbl)
+            content_layout.addWidget(orig_lbl)
 
         # ── 用法（仅非空时显示，黄色块）──────────────────────────────────────────
         if usage:
@@ -815,12 +1000,32 @@ class ResultWindow(QWidget):
                 "color: #f9e2af; font-size: 12px;"
                 " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
             )
-            main_layout.addWidget(usage_lbl)
+            content_layout.addWidget(usage_lbl)
 
-        main_layout.addStretch()
-        self._append_image_preview(main_layout)
+        # ── 文化背景（仅 meme 且非空时显示，青色块）────────────────────────────
+        cultural_note = self._result.get("cultural_note", "")
+        if explain_type == "meme" and cultural_note:
+            cn_lbl = QLabel(f"🌐 文化背景：{cultural_note}")
+            cn_lbl.setWordWrap(True)
+            cn_lbl.setStyleSheet(
+                "color: #89dceb; font-size: 12px;"
+                " background: #0e2430; border-left: 3px solid #89dceb;"
+                " border-radius: 4px; padding: 8px 12px;"
+            )
+            content_layout.addWidget(cn_lbl)
+
+        content_layout.addStretch()
+        self._append_image_preview(content_layout)
 
     def _init_source_ui(self):
+        _SUBTYPE_CONFIG = {
+            "anime":       ("动画",   "#89dceb", "#0e2428"),
+            "manga":       ("漫画",   "#89b4fa", "#0e1828"),
+            "film_tv":     ("影视",   "#f38ba8", "#2e0e14"),
+            "game":        ("游戏",   "#a6e3a1", "#0e2818"),
+            "social_post": ("社交",   "#f9e2af", "#2a2018"),
+            "artwork":     ("插画",   "#cba6f7", "#1e0e2a"),
+        }
         _MEDIA_TYPE_ZH = {
             "anime": "动画", "manga": "漫画", "movie": "电影",
             "game": "游戏", "tv": "剧集", "other": "其他",
@@ -835,6 +1040,7 @@ class ResultWindow(QWidget):
         title = self._result.get("title", "")
         original_title = self._result.get("original_title", "")
         media_type = self._result.get("media_type", "other")
+        subtype = self._result.get("_subtype", "")
         year = self._result.get("year", "")
         studio = self._result.get("studio", "")
         episode = self._result.get("episode", "")
@@ -854,11 +1060,16 @@ class ResultWindow(QWidget):
         title_lbl.setStyleSheet("color: #fab387; font-size: 16px; font-weight: bold;")
         top_row.addWidget(title_lbl)
 
-        media_zh = _MEDIA_TYPE_ZH.get(media_type, "其他")
-        media_lbl = QLabel(media_zh)
+        # 媒介类型徽章：优先用 _subtype 颜色，fallback 到 media_type 文字
+        if subtype in _SUBTYPE_CONFIG:
+            badge_text, badge_fg, badge_bg = _SUBTYPE_CONFIG[subtype]
+        else:
+            badge_text = _MEDIA_TYPE_ZH.get(media_type, "其他")
+            badge_fg, badge_bg = "#fab387", "#2e1e0e"
+        media_lbl = QLabel(badge_text)
         media_lbl.setStyleSheet(
-            "color: #fab387; font-size: 11px; background: #2e1e0e;"
-            " border: 1px solid #fab387; border-radius: 4px; padding: 2px 8px;"
+            f"color: {badge_fg}; font-size: 11px; background: {badge_bg};"
+            f" border: 1px solid {badge_fg}; border-radius: 4px; padding: 2px 8px;"
         )
         top_row.addWidget(media_lbl)
 
@@ -881,6 +1092,24 @@ class ResultWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         main_layout.addWidget(sep)
 
+        # ── 滚动区域（顶栏/分隔线固定，内容可滚动）──────────────────────────────
+        _scroll = QScrollArea()
+        _scroll.setWidgetResizable(True)
+        _scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+        _content_widget = QWidget()
+        _content_widget.setStyleSheet("background: transparent;")
+        content_layout = QVBoxLayout(_content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
+        _scroll.setWidget(_content_widget)
+        main_layout.addWidget(_scroll, 1)
+
         if not self._result.get("_vision_used", True):
             vision_tip = QLabel(
                 "⚠️ 未启用以图搜图（未配置 Google Vision Key），冷门作品识别准确率可能偏低。"
@@ -891,14 +1120,14 @@ class ResultWindow(QWidget):
                 "color: #f9e2af; font-size: 11px;"
                 " background: #2a2018; border-radius: 6px; padding: 7px 12px;"
             )
-            main_layout.addWidget(vision_tip)
+            content_layout.addWidget(vision_tip)
 
         if error or not found:
             # 未能识别
             err_lbl = QLabel(f"💥 {error or '未能识别该截图来自哪部作品'}")
             err_lbl.setWordWrap(True)
             err_lbl.setStyleSheet("color: #f38ba8; font-size: 14px; padding: 8px 0;")
-            main_layout.addWidget(err_lbl)
+            content_layout.addWidget(err_lbl)
             if scene and scene != "（无法识别）":
                 scene_lbl = QLabel(scene)
                 scene_lbl.setWordWrap(True)
@@ -907,7 +1136,7 @@ class ResultWindow(QWidget):
                     " background: rgba(69,71,90,120);"
                     " border-radius: 8px; padding: 10px 12px;"
                 )
-                main_layout.addWidget(scene_lbl)
+                content_layout.addWidget(scene_lbl)
             if note:
                 note_lbl = QLabel(note)
                 note_lbl.setWordWrap(True)
@@ -915,7 +1144,7 @@ class ResultWindow(QWidget):
                     "color: #f9e2af; font-size: 12px;"
                     " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
                 )
-                main_layout.addWidget(note_lbl)
+                content_layout.addWidget(note_lbl)
         else:
             # ── 作品标题 ────────────────────────────────────────────────────────
             title_main = QLabel(title or "（未知作品）")
@@ -923,13 +1152,13 @@ class ResultWindow(QWidget):
             title_main.setStyleSheet(
                 "color: #fab387; font-size: 18px; font-weight: bold; padding: 2px 0;"
             )
-            main_layout.addWidget(title_main)
+            content_layout.addWidget(title_main)
 
             if original_title and original_title != title:
                 orig_lbl = QLabel(original_title)
                 orig_lbl.setWordWrap(True)
                 orig_lbl.setStyleSheet("color: #6c7086; font-size: 13px; padding: 0;")
-                main_layout.addWidget(orig_lbl)
+                content_layout.addWidget(orig_lbl)
 
             # ── 年份 · 制作公司 ─────────────────────────────────────────────────
             meta_parts = []
@@ -940,7 +1169,7 @@ class ResultWindow(QWidget):
             if meta_parts:
                 meta_lbl = QLabel("  ·  ".join(meta_parts))
                 meta_lbl.setStyleSheet("color: #6c7086; font-size: 12px; padding: 2px 0;")
-                main_layout.addWidget(meta_lbl)
+                content_layout.addWidget(meta_lbl)
 
             # ── 集数 + 集名 ─────────────────────────────────────────────────────
             ep_parts = []
@@ -952,7 +1181,7 @@ class ResultWindow(QWidget):
                 ep_lbl = QLabel("  ".join(ep_parts))
                 ep_lbl.setWordWrap(True)
                 ep_lbl.setStyleSheet("color: #89b4fa; font-size: 13px; padding: 2px 0;")
-                main_layout.addWidget(ep_lbl)
+                content_layout.addWidget(ep_lbl)
 
             # ── 场景描述 ────────────────────────────────────────────────────────
             if scene and scene != "（无法识别）":
@@ -963,14 +1192,74 @@ class ResultWindow(QWidget):
                     " background: rgba(69,71,90,120);"
                     " border-radius: 8px; padding: 10px 12px;"
                 )
-                main_layout.addWidget(scene_lbl)
+                content_layout.addWidget(scene_lbl)
 
             # ── 出现角色 ────────────────────────────────────────────────────────
             if characters:
                 chars_lbl = QLabel(f"出现角色：{', '.join(characters)}")
                 chars_lbl.setWordWrap(True)
                 chars_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 2px 0;")
-                main_layout.addWidget(chars_lbl)
+                content_layout.addWidget(chars_lbl)
+
+            # ── 子模式专有字段 ────────────────────────────────────────────────────
+            def _extra_row(label: str, value: str):
+                if not value:
+                    return
+                lbl = QLabel(f"{label}：{value}")
+                lbl.setWordWrap(True)
+                lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
+                content_layout.addWidget(lbl)
+
+            if subtype == "manga":
+                vol = self._result.get("volume", "")
+                chap = self._result.get("chapter", "")
+                pub = self._result.get("publisher", "")
+                art = self._result.get("artist", "")
+                vol_chap = "  ".join(x for x in [vol, chap] if x)
+                _extra_row("卷/话", vol_chap)
+                _extra_row("出版社", pub)
+                _extra_row("作者", art)
+            elif subtype == "film_tv":
+                director = self._result.get("director", "")
+                actors: list = self._result.get("actors", [])
+                _extra_row("导演", director)
+                if actors:
+                    _extra_row("演员", ", ".join(actors))
+            elif subtype == "game":
+                game_title = self._result.get("game_title", "")
+                developer = self._result.get("developer", "")
+                platform = self._result.get("platform", "")
+                _extra_row("游戏", game_title)
+                _extra_row("开发商", developer)
+                _extra_row("平台", platform)
+            elif subtype == "social_post":
+                account = self._result.get("account", "")
+                post_date = self._result.get("post_date", "")
+                content_summary = self._result.get("content_summary", "")
+                original_url = self._result.get("original_url", "")
+                _extra_row("账号", account)
+                _extra_row("发帖时间", post_date)
+                _extra_row("内容摘要", content_summary)
+                if original_url:
+                    url_lbl = QLabel(f'原帖：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
+                    url_lbl.setTextFormat(Qt.TextFormat.RichText)
+                    url_lbl.setOpenExternalLinks(True)
+                    url_lbl.setWordWrap(True)
+                    url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
+                    content_layout.addWidget(url_lbl)
+            elif subtype == "artwork":
+                artist = self._result.get("artist", "")
+                source_site = self._result.get("source_site", "")
+                original_url = self._result.get("original_url", "")
+                _extra_row("画师", artist)
+                _extra_row("来源平台", source_site)
+                if original_url:
+                    url_lbl = QLabel(f'原始链接：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
+                    url_lbl.setTextFormat(Qt.TextFormat.RichText)
+                    url_lbl.setOpenExternalLinks(True)
+                    url_lbl.setWordWrap(True)
+                    url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
+                    content_layout.addWidget(url_lbl)
 
             # ── note 黄色块 ─────────────────────────────────────────────────────
             if note:
@@ -980,17 +1269,17 @@ class ResultWindow(QWidget):
                     "color: #f9e2af; font-size: 12px;"
                     " background: #2a2018; border-radius: 6px; padding: 8px 12px;"
                 )
-                main_layout.addWidget(note_lbl)
+                content_layout.addWidget(note_lbl)
 
-        self._append_search_log(main_layout, search_log)
+        self._append_search_log(content_layout, search_log)
 
-        main_layout.addStretch()
+        content_layout.addStretch()
 
         # 对比图区域：输入截图 + AI 搜索到的参考图并排
         ref_urls = self._result.get("reference_image_urls", [])
         page_urls = self._result.get("source_page_urls", [])
         if found or ref_urls:
-            self._load_ref_images(main_layout, ref_urls, self._image, page_urls)
+            self._load_ref_images(content_layout, ref_urls, self._image, page_urls)
 
     def _on_ref_image_loaded(self, label, pixmap):
         """Slot: update reference image label from background thread."""

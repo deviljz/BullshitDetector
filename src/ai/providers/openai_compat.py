@@ -13,7 +13,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_source_prompt, get_follow_up_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 
@@ -23,15 +23,17 @@ _ANALYZE_RETRY_PROMPT = (
     "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
     "重要字段提醒（缺任何一个都视为格式错误）：\n"
     "1. investigation_report 必须包含 content_nature 字段（内容性质：社交媒体截图/新闻报道/官方公文等）\n"
-    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
-    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note / sources\n"
+    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实\n"
+    "4. sources：填入支持该判断的参考链接（最多3条，格式：[{\"url\": \"https://...\", \"title\": \"页面标题\"}]）；搜不到填 []"
 )
 _ANALYZE_ARTICLE_RETRY_PROMPT = (
     "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
     "重要字段提醒（缺任何一个都视为格式错误）：\n"
     "1. investigation_report 必须包含 content_nature 字段（内容性质：自媒体公众号/科技媒体/官方新闻等）\n"
-    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note\n"
-    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"
+    "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note / sources\n"
+    "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实\n"
+    "4. sources：填入支持该判断的参考链接（最多3条，格式：[{\"url\": \"https://...\", \"title\": \"页面标题\"}]）；搜不到填 []"
 )
 _SOURCE_RETRY_PROMPT = "请根据以上搜索结果，严格按照系统提示定义的 JSON 格式输出最终识别结果。"
 
@@ -219,7 +221,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     # ── 一键总结 ──────────────────────────────────────────────────────────────
 
-    _SUMMARY_DEFAULTS = {"_mode": "summary", "headline": "", "key_points": [], "original_language": "zh", "bias_note": ""}
+    _SUMMARY_DEFAULTS = {
+        "_mode": "summary", "content_type": "other", "headline": "", "core_idea": "",
+        "key_points": [], "structured_outline": [], "timeline": [], "key_quote": "",
+        "original_language": "zh", "bias_note": "",
+    }
 
     _SUMMARY_RETRY = "请直接输出 JSON，不要加任何 markdown 代码块或其他文字。"
 
@@ -250,20 +256,60 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     # ── 一键解释 ──────────────────────────────────────────────────────────────
 
     _EXPLAIN_DEFAULTS = {
-        "_mode": "explain", "type": "concept", "subject": "", "short_answer": "",
-        "characters": [], "detail": "", "origin": "", "usage": "", "original_language": "zh",
+        "_mode": "explain", "_subtype": "concept",
+        "type": "concept", "subject": "", "short_answer": "",
+        "characters": [], "detail": "", "origin": "", "usage": "",
+        "still_active": True, "cultural_note": "",
+        "grid_rows": 0, "grid_cols": 0,
+        "known_for": "", "current_status": "", "product_specs": "",
+        "original_language": "zh",
     }
 
     _EXPLAIN_RETRY = "请直接输出 JSON，不要加任何 markdown 代码块或其他文字。"
 
+    def _classify_explain(self, user_content) -> dict:
+        """Stage 1: 轻量分类，不使用工具，返回 {subtype, grid_rows, grid_cols, brief}"""
+        try:
+            content = user_content if isinstance(user_content, list) else [{"type": "text", "text": user_content}]
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_explain_classify_prompt()},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = parse_json(resp.choices[0].message.content)
+            return {
+                "subtype": result.get("subtype", "concept"),
+                "grid_rows": result.get("grid_rows", 0),
+                "grid_cols": result.get("grid_cols", 0),
+                "brief": result.get("brief", ""),
+            }
+        except Exception:
+            return {"subtype": "concept", "grid_rows": 0, "grid_cols": 0, "brief": ""}
+
     def explain(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
+            user_content = self._image_content(images, "请解释这些内容：", extra_text)
+
+            # Stage 1: 分类
+            cls = self._classify_explain(user_content)
+            subtype = cls["subtype"]
+
+            # Stage 2: 专化 prompt
             messages = [
-                {"role": "system", "content": get_explain_prompt()},
-                {"role": "user", "content": self._image_content(images, "请解释这些内容：", extra_text)},
+                {"role": "system", "content": get_explain_prompt(subtype)},
+                {"role": "user", "content": user_content},
             ]
             content, _, raw_tokens = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
             result = parse_json(content)
+            result["_subtype"] = subtype
+            if cls["grid_rows"]:
+                result.setdefault("grid_rows", cls["grid_rows"])
+            if cls["grid_cols"]:
+                result.setdefault("grid_cols", cls["grid_cols"])
             for k, v in self._EXPLAIN_DEFAULTS.items():
                 result.setdefault(k, v)
             token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
@@ -273,12 +319,19 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def explain_article(self, text: str) -> tuple[dict, dict]:
         try:
+            text_content = f"请解释以下内容：\n\n{text[:8000]}"
+
+            # 文字内容：先分类
+            cls = self._classify_explain(text_content)
+            subtype = cls["subtype"]
+
             messages = [
-                {"role": "system", "content": get_explain_prompt()},
-                {"role": "user", "content": f"请解释以下内容：\n\n{text[:8000]}"},
+                {"role": "system", "content": get_explain_prompt(subtype)},
+                {"role": "user", "content": text_content},
             ]
             content, _, raw_tokens = self._tool_loop(messages, 4096, self._EXPLAIN_RETRY, force_first_tool=False)
             result = parse_json(content)
+            result["_subtype"] = subtype
             for k, v in self._EXPLAIN_DEFAULTS.items():
                 result.setdefault(k, v)
             token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
@@ -289,11 +342,65 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     # ── 求出处 ────────────────────────────────────────────────────────────────
 
     _SOURCE_DEFAULTS = {
-        "_mode": "source", "found": False, "title": "", "original_title": "",
-        "media_type": "other", "year": "", "studio": "", "episode": "",
-        "episode_title": "", "scene": "", "characters": [], "confidence": "low", "note": "",
+        "_mode": "source",
+        "found": False,
+        "title": "",
+        "original_title": "",
+        "media_type": "other",
+        "year": "",
+        "studio": "",
+        "episode": "",
+        "episode_title": "",
+        "scene": "",
+        "characters": [],
+        "confidence": "low",
+        "note": "",
+        "_vision_used": False,
+        "_subtype": "anime",
+        # manga
+        "volume": "",
+        "chapter": "",
+        "publisher": "",
+        "artist": "",
+        # film_tv
+        "director": "",
+        "actors": [],
+        # game
+        "game_title": "",
+        "developer": "",
+        "platform": "",
+        # social_post
+        "account": "",
+        "post_date": "",
+        "content_summary": "",
+        "original_url": "",
+        # artwork
+        "source_site": "",
         "reference_image_urls": [],
+        "source_page_urls": [],
+        "_search_log": [],
     }
+
+    def _classify_source(self, user_content) -> dict:
+        """Stage 1: 轻量分类，不使用工具，返回 {subtype, brief}"""
+        try:
+            content = user_content if isinstance(user_content, list) else [{"type": "text", "text": user_content}]
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_source_classify_prompt()},
+                    {"role": "user", "content": content},
+                ],
+                max_tokens=200,
+                response_format={"type": "json_object"},
+            )
+            result = parse_json(resp.choices[0].message.content)
+            return {
+                "subtype": result.get("subtype", "anime"),
+                "brief": result.get("brief", ""),
+            }
+        except Exception:
+            return {"subtype": "anime", "brief": ""}
 
     def source_find(self, images: list[str], extra_text: str = "") -> tuple[dict, dict]:
         try:
@@ -301,14 +408,23 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             from config.manager import load as _load_cfg
             _vkey = _load_cfg().get("google_vision_api_key", "")
             _active_tools = SOURCE_TOOLS if (_vkey and not _vkey.startswith("AIzaSy-YOUR")) else TOOLS
+
+            user_content = self._image_content(images, "请识别这张截图来自哪部作品：", extra_text)
+
+            # Stage 1: 分类
+            meta = self._classify_source(user_content)
+            subtype = meta["subtype"]
+
+            # Stage 2: 专化 prompt
             messages = [
-                {"role": "system", "content": get_source_prompt()},
-                {"role": "user", "content": self._image_content(images, "请识别这张截图来自哪部作品：", extra_text)},
+                {"role": "system", "content": get_source_prompt(subtype=subtype)},
+                {"role": "user", "content": user_content},
             ]
             content, search_log, raw_tokens = self._tool_loop(
                 messages, 2048, _SOURCE_RETRY_PROMPT, tools=_active_tools
             )
             result = parse_json(content)
+            result["_subtype"] = subtype
             for k, v in self._SOURCE_DEFAULTS.items():
                 result.setdefault(k, v)
             # Vision API 的视觉相似图优先；AI 自填的 URL 只作无 Vision 时的 fallback
@@ -335,12 +451,20 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     def source_find_article(self, text: str) -> tuple[dict, dict]:
         try:
+            text_content = f"请根据以下描述识别来自哪部作品：\n\n{text[:4000]}"
+
+            # Stage 1: 分类
+            meta = self._classify_source(text_content)
+            subtype = meta["subtype"]
+
+            # Stage 2: 专化 prompt
             messages = [
-                {"role": "system", "content": get_source_prompt()},
-                {"role": "user", "content": [{"type": "text", "text": f"请根据以下描述识别来自哪部作品：\n\n{text[:4000]}"}]},
+                {"role": "system", "content": get_source_prompt(subtype=subtype)},
+                {"role": "user", "content": [{"type": "text", "text": text_content}]},
             ]
             content, search_log, raw_tokens = self._tool_loop(messages, 2048, _SOURCE_RETRY_PROMPT)
             result = parse_json(content)
+            result["_subtype"] = subtype
             for k, v in self._SOURCE_DEFAULTS.items():
                 result.setdefault(k, v)
             result["_search_log"] = search_log

@@ -7,6 +7,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
     QSizePolicy,
     QVBoxLayout,
@@ -77,6 +78,17 @@ class HistoryWindow(QWidget):
         title_row.addWidget(refresh_btn)
         root.addLayout(title_row)
 
+        # 搜索栏
+        self._search_bar = QLineEdit()
+        self._search_bar.setPlaceholderText("搜索标题、类型…")
+        self._search_bar.setStyleSheet(
+            "QLineEdit { background: #313244; color: #cdd6f4; border-radius: 6px;"
+            " border: 1px solid #45475a; padding: 4px 10px; font-size: 12px; }"
+            "QLineEdit:focus { border-color: #89b4fa; }"
+        )
+        self._search_bar.textChanged.connect(self._on_search)
+        root.addWidget(self._search_bar)
+
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet("color: #313244;")
@@ -89,19 +101,34 @@ class HistoryWindow(QWidget):
         self._list_layout.setSpacing(6)
         root.addWidget(self._list_widget)
 
+        self._all_entries: list = []
         self._reload()
 
     def _reload(self):
         import history as hs
+        self._all_entries = hs.load_all()
+        query = self._search_bar.text() if hasattr(self, "_search_bar") else ""
+        self._render_entries(self._all_entries, query)
+
+    def _render_entries(self, entries: list, query: str = ""):
         # 清空旧条目
         while self._list_layout.count() > 0:
             item = self._list_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        entries = hs.load_all()
+        if query:
+            q = query.lower()
+            entries = [
+                e for e in entries
+                if q in (e.get("title") or "").lower()
+                or q in (e.get("type_label") or "").lower()
+                or q in (e.get("mode") or "").lower()
+            ]
+
         if not entries:
-            empty = QLabel("暂无历史记录")
+            msg = "没有匹配的记录" if query else "暂无历史记录"
+            empty = QLabel(msg)
             empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
             empty.setStyleSheet("color: #6c7086; font-size: 13px; padding: 40px;")
             self._list_layout.addWidget(empty)
@@ -110,6 +137,9 @@ class HistoryWindow(QWidget):
                 self._list_layout.addWidget(self._make_row(entry))
 
         QTimer.singleShot(0, self.adjustSize)
+
+    def _on_search(self, text: str):
+        self._render_entries(self._all_entries, text)
 
     def _make_row(self, entry: dict) -> QWidget:
         row = QFrame()
@@ -226,4 +256,5 @@ class HistoryWindow(QWidget):
     def _delete(self, entry_id: str):
         import history as hs
         hs.delete(entry_id)
-        self._reload()
+        self._all_entries = [e for e in self._all_entries if e.get("id") != entry_id]
+        self._render_entries(self._all_entries, self._search_bar.text())
