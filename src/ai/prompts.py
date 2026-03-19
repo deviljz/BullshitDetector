@@ -170,8 +170,11 @@ def _build_prompt(t: dict) -> str:
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 
 {{
+  "claim_verification": [
+    {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
+  ],
   "header": {{
-    "bullshit_index": 0-100的整数,
+    "bullshit_index": 0-100的整数（从上方claim_verification推导：全部✓→0-30，有?无✗→31-55，有✗→56+；铁律命中时取铁律范围更高者优先）,
     "truth_label": "生动描述，例如：5% 有点煽但内容属实 / 50% 半真半假掺沙子的饭 / 99% 保真难得清流",
     "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按上方映射规则填写）",
     "verdict": "20-40字的核心判决，点出最关键的造假手法或可信依据"
@@ -190,9 +193,6 @@ def _build_prompt(t: dict) -> str:
     "physics_check": "物理常识核查；含图片时检查镜像翻转（水印/文字/Logo呈镜像→翻转规避检测，在 flaw_list 指出）",
     "source_independence_note": "有效信源总数及同源转载情况"
   }},
-  "claim_verification": [
-    {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
-  ],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
     "破绽1：具体指出哪里造假、为何不可信",
@@ -311,8 +311,11 @@ def _build_article_prompt(t: dict) -> str:
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 
 {{
+  "claim_verification": [
+    {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
+  ],
   "header": {{
-    "bullshit_index": 0-100的整数,
+    "bullshit_index": 0-100的整数（从上方claim_verification推导：全部✓→0-30，有?无✗→31-55，有✗→56+；铁律命中时取铁律范围更高者优先）,
     "truth_label": "生动描述，例如：85% 披着科技外衣的营销软文 / 20% 基本属实的行业分析",
     "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按上方映射规则填写）",
     "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
@@ -334,9 +337,6 @@ def _build_article_prompt(t: dict) -> str:
     "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或风险信息",
     "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图"
   }},
-  "claim_verification": [
-    {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据"}}
-  ],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
     "破绽1：具体指出哪里夸大/无来源/意图不纯",
