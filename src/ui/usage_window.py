@@ -242,9 +242,10 @@ class UsageWindow(QWidget):
             lower_series = QLineSeries()
             self._line_series_refs.extend([upper_series, lower_series])
 
+            last_lo = last_hi = 0
             for date_str in dates:
-                # 每天用正午单点，相邻天之间画斜线，有曲线感
-                ms_mid = QDateTime.fromString(date_str + "T12:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+                # 每天用当天开头，相邻天之间连线形成曲线感
+                ms_mid = QDateTime.fromString(date_str + "T00:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
                 day_data = daily.get(date_str, {})
                 model_data = day_data.get(model, {"input": 0, "output": 0})
                 total = model_data["input"] + model_data["output"]
@@ -253,6 +254,12 @@ class UsageWindow(QWidget):
                 lower_series.append(ms_mid, lo)
                 upper_series.append(ms_mid, hi)
                 cumulative[date_str] = hi
+                last_lo, last_hi = lo, hi
+
+            # 延伸到轴终点（最后一天末尾），避免右侧出现空白悬崖
+            ms_end = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+            lower_series.append(ms_end, last_lo)
+            upper_series.append(ms_end, last_hi)
 
             area = QAreaSeries(upper_series, lower_series)
             area.setName(model)
@@ -272,6 +279,7 @@ class UsageWindow(QWidget):
         axis_x.setTickCount(max(2, len(dates)))
         min_dt = QDateTime.fromString(dates[0] + "T00:00:00", Qt.DateFormat.ISODate)
         max_dt = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate)
+        axis_x.setTickCount(max(2, len(dates)))
         axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
