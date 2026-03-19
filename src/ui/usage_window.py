@@ -235,17 +235,16 @@ class UsageWindow(QWidget):
         # 轴右端点：最后一天 T02:00，延伸点与轴终点对齐，让悬崖落在不可见的轴边界
         ms_end = QDateTime.fromString(dates[-1] + "T02:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
 
-        # 预计算每个模型在每天的【累计】token 总量（running sum，只增不减）
-        running = {m: 0 for m in models_list}
-        model_cumul_by_date = {}  # {date: {model: cumulative_total}}
+        # 每天独立用量（非累计）
+        model_daily = {}  # {date: {model: tokens}}
         for date_str in dates:
             day_data = daily.get(date_str, {})
+            model_daily[date_str] = {}
             for m in models_list:
                 md = day_data.get(m, {"input": 0, "output": 0})
-                running[m] += md["input"] + md["output"]
-            model_cumul_by_date[date_str] = dict(running)
+                model_daily[date_str][m] = md["input"] + md["output"]
 
-        # 堆叠面积图：每层的下界 = 前面所有模型的累计之和
+        # 堆叠面积图：每层的下界 = 前面所有模型当天用量之和
         stack_base = {d: 0 for d in dates}
 
         for model in models_list:
@@ -258,7 +257,7 @@ class UsageWindow(QWidget):
             for date_str in dates:
                 ms = QDateTime.fromString(date_str + "T00:00:00", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
                 lo = stack_base[date_str]
-                hi = lo + model_cumul_by_date[date_str][model]
+                hi = lo + model_daily[date_str][model]
                 lower_series.append(ms, lo)
                 upper_series.append(ms, hi)
                 last_lo, last_hi = lo, hi
@@ -269,7 +268,7 @@ class UsageWindow(QWidget):
 
             # 更新下一层模型的堆叠基线
             for date_str in dates:
-                stack_base[date_str] += model_cumul_by_date[date_str][model]
+                stack_base[date_str] += model_daily[date_str][model]
 
             area = QAreaSeries(upper_series, lower_series)
             area.setName(model)
@@ -292,8 +291,8 @@ class UsageWindow(QWidget):
         axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
-        # 手动计算 Y 轴最大值（堆叠累计最后一天的总和）
-        max_y = sum(model_cumul_by_date[dates[-1]][m] for m in models_list)
+        # 手动计算 Y 轴最大值（所有天中堆叠最大的那天）
+        max_y = max(sum(model_daily[d][m] for m in models_list) for d in dates)
         axis_y = QValueAxis()
         axis_y.setLabelsColor(QColor("#6c7086"))
         axis_y.setGridLineColor(QColor("#313244"))
