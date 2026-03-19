@@ -242,14 +242,19 @@ class UsageWindow(QWidget):
             self._line_series_refs.extend([upper_series, lower_series])
 
             for date_str in dates:
-                dt = QDateTime.fromString(date_str + "T12:00:00", Qt.DateFormat.ISODate)
-                ms = dt.toMSecsSinceEpoch()
+                # 每天用首尾两个时间点，形成矩形色块而非斜线
+                ms_s = QDateTime.fromString(date_str + "T00:00:01", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
+                ms_e = QDateTime.fromString(date_str + "T23:59:59", Qt.DateFormat.ISODate).toMSecsSinceEpoch()
                 day_data = daily.get(date_str, {})
                 model_data = day_data.get(model, {"input": 0, "output": 0})
                 total = model_data["input"] + model_data["output"]
-                lower_series.append(ms, cumulative[date_str])
-                cumulative[date_str] += total
-                upper_series.append(ms, cumulative[date_str])
+                lo = cumulative[date_str]
+                hi = lo + total
+                lower_series.append(ms_s, lo)
+                lower_series.append(ms_e, lo)
+                upper_series.append(ms_s, hi)
+                upper_series.append(ms_e, hi)
+                cumulative[date_str] = hi
 
             area = QAreaSeries(upper_series, lower_series)
             area.setName(model)
@@ -260,11 +265,15 @@ class UsageWindow(QWidget):
         for area in area_series_list:
             self._chart.addSeries(area)
 
-        # Axes
+        # Axes — tickCount = 天数，避免同一天被重复标注
         axis_x = QDateTimeAxis()
         axis_x.setFormat("MM-dd")
         axis_x.setLabelsColor(QColor("#6c7086"))
         axis_x.setGridLineColor(QColor("#313244"))
+        axis_x.setTickCount(max(2, len(dates)))
+        min_dt = QDateTime.fromString(dates[0] + "T00:00:00", Qt.DateFormat.ISODate)
+        max_dt = QDateTime.fromString(dates[-1] + "T23:59:59", Qt.DateFormat.ISODate)
+        axis_x.setRange(min_dt, max_dt)
         self._chart.addAxis(axis_x, Qt.AlignmentFlag.AlignBottom)
 
         axis_y = QValueAxis()
