@@ -2,9 +2,9 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QTreeWidget, QTreeWidgetItem, QSizeGrip, QToolTip,
+    QFrame, QTreeWidget, QTreeWidgetItem, QSizeGrip,
 )
-from PyQt6.QtCore import Qt, QPoint, QDateTime, QMargins
+from PyQt6.QtCore import Qt, QPoint, QDateTime, QMargins, QTimer, QEvent
 from PyQt6.QtGui import QFont, QColor, QCursor
 
 try:
@@ -136,7 +136,23 @@ class UsageWindow(QWidget):
             self._chart_view = QChartView(self._chart)
             self._chart_view.setFixedHeight(260)
             self._chart_view.setStyleSheet("background: transparent;")
+            self._chart_view.setMouseTracking(True)
+            self._chart_view.installEventFilter(self)
             main.addWidget(self._chart_view)
+
+            # 浮动 tooltip label（替代 QToolTip，不会自动消失）
+            self._hover_label = QLabel(self)
+            self._hover_label.setStyleSheet(
+                "background: #313244; color: #cdd6f4; border: 1px solid #45475a;"
+                " padding: 6px 8px; border-radius: 6px; font-size: 12px;"
+            )
+            self._hover_label.setVisible(False)
+            self._hover_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
+            # 短延迟 timer，防止跨图层时闪烁
+            self._hide_timer = QTimer(self)
+            self._hide_timer.setSingleShot(True)
+            self._hide_timer.setInterval(80)
+            self._hide_timer.timeout.connect(self._hover_label.hide)
         else:
             no_chart = QLabel("图表不可用（需要 PyQt6-Charts）")
             no_chart.setStyleSheet("color: #6c7086; font-size: 12px;")
@@ -311,8 +327,12 @@ class UsageWindow(QWidget):
         self._chart.setTitle("")
 
     def _on_chart_hover(self, point, state: bool):
+        if not hasattr(self, "_hover_label"):
+            return
         if not state:
-            return  # 不主动 hide，让 Qt 自然消失
+            self._hide_timer.start()
+            return
+        self._hide_timer.stop()
         dt = QDateTime.fromMSecsSinceEpoch(int(point.x()))
         date_str = dt.toString("yyyy-MM-dd")
         day_data = getattr(self, "_daily_data", {}).get(date_str, {})
@@ -326,7 +346,24 @@ class UsageWindow(QWidget):
             total_out += out
         if day_data:
             lines.append(f"合计：{_fmt_tokens(total_in + total_out)} tokens")
-        QToolTip.showText(QCursor.pos(), "\n".join(lines), self._chart_view)
+        self._hover_label.setText("\n".join(lines))
+        self._hover_label.adjustSize()
+        # 定位到鼠标右下方，超出窗口时左移
+        cur = self.mapFromGlobal(QCursor.pos())
+        lx = cur.x() + 12
+        ly = cur.y() + 12
+        if lx + self._hover_label.width() > self.width():
+            lx = cur.x() - self._hover_label.width() - 4
+        self._hover_label.move(lx, ly)
+        self._hover_label.raise_()
+        self._hover_label.setVisible(True)
+
+    def eventFilter(self, obj, event):
+        if obj is getattr(self, "_chart_view", None):
+            if event.type() == QEvent.Type.Leave:
+                if hasattr(self, "_hide_timer"):
+                    self._hide_timer.start()
+        return super().eventFilter(obj, event)
 
     def _refresh_tree(self, sessions: list):
         self._tree.clear()
