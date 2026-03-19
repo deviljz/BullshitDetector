@@ -17,7 +17,7 @@ from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 
-MAX_TOOL_ROUNDS = 5
+MAX_TOOL_ROUNDS = 8  # 并行调用后每轮可发多个请求，8轮足够复杂案例
 
 _ANALYZE_RETRY_PROMPT = (
     "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
