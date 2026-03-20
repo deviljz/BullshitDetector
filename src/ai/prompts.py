@@ -591,7 +591,7 @@ def _explain_concept_prompt() -> str:
   "characters": [],
   "detail": "详细说明（2~4句：定义、背景、为何重要）",
   "origin": "来源领域/出处",
-  "usage": "怎么用/怎么理解（可留空字符串）",
+  "usage": "",
   "still_active": true,
   "cultural_note": "",
   "original_language": "zh"

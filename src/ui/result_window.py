@@ -982,8 +982,8 @@ class ResultWindow(QWidget):
             orig_lbl.setStyleSheet("color: #6c7086; font-size: 12px; padding: 2px 0;")
             content_layout.addWidget(orig_lbl)
 
-        # ── 用法（仅非空时显示，黄色块）──────────────────────────────────────────
-        if usage:
+        # ── 用法（仅 meme 且非空时显示，黄色块）────────────────────────────────
+        if explain_type == "meme" and usage:
             usage_lbl = QLabel(f"💬 用法：{usage}")
             usage_lbl.setWordWrap(True)
             usage_lbl.setStyleSheet(
