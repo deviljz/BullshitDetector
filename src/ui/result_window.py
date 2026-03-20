@@ -207,6 +207,7 @@ class ResultWindow(QWidget):
 
     _ref_image_loaded = pyqtSignal(object, object)      # (QLabel, QPixmap | None)
     _follow_up_received = pyqtSignal(str, str)           # (question, answer)
+    _rerun_done = pyqtSignal(dict)                       # result from mode rerun
 
     def __init__(self, result: dict, position: tuple | None = None, images=None, image=None,
                  history_id: str | None = None, chat_history: list | None = None,
@@ -229,6 +230,8 @@ class ResultWindow(QWidget):
         self._loading_label: QLabel | None = None
         self._ref_image_loaded.connect(self._on_ref_image_loaded)
         self._follow_up_received.connect(self._on_follow_up_received)
+        self._rerun_done.connect(self._on_rerun_done)
+        self._mode_switch_btns: dict[str, QPushButton] = {}
         self._init_window()
         self._init_ui()
         self._make_labels_selectable()
@@ -600,22 +603,7 @@ class ResultWindow(QWidget):
         )
         main_layout.addWidget(cols_scroll, 1)
 
-        # ── 底部：复制按钮（右下）+ 缩放手柄 ────────────────────────────────
-        bottom_row = QHBoxLayout()
-        bottom_row.addStretch()
-        copy_btn = QPushButton("复制结果")
-        copy_btn.setFixedHeight(32)
-        copy_btn.setStyleSheet(
-            "QPushButton { background: #313244; color: #89b4fa; "
-            "border-radius: 8px; font-size: 12px; font-weight: bold; padding: 0 16px; }"
-            "QPushButton:hover { background: #45475a; }"
-        )
-        copy_btn.clicked.connect(self._copy_result)
-        bottom_row.addWidget(copy_btn)
-        grip = QSizeGrip(self)
-        grip.setStyleSheet("background: transparent;")
-        bottom_row.addWidget(grip, alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
-        main_layout.addLayout(bottom_row)
+        self._add_bottom_bar(main_layout, "analyze", include_copy=True)
 
     # ── 窗口定位 ──────────────────────────────────────────────────────────────
     def _init_summary_ui(self):
@@ -690,6 +678,7 @@ class ResultWindow(QWidget):
         content_layout.setSpacing(10)
         _scroll.setWidget(_content_widget)
         main_layout.addWidget(_scroll, 1)
+        self._add_bottom_bar(main_layout, "summary")
 
         # ── 一句话结论 ──────────────────────────────────────────────────────────
         if error:
@@ -886,6 +875,7 @@ class ResultWindow(QWidget):
         content_layout.setSpacing(10)
         _scroll.setWidget(_content_widget)
         main_layout.addWidget(_scroll, 1)
+        self._add_bottom_bar(main_layout, "explain")
 
         # ── subject 大字 ─────────────────────────────────────────────────────────
         if error:
@@ -1109,6 +1099,7 @@ class ResultWindow(QWidget):
         content_layout.setSpacing(10)
         _scroll.setWidget(_content_widget)
         main_layout.addWidget(_scroll, 1)
+        self._add_bottom_bar(main_layout, "source")
 
         if not self._result.get("_vision_used", True):
             vision_tip = QLabel(
@@ -1433,6 +1424,14 @@ class ResultWindow(QWidget):
         else:
             self.resize(self.width() - delta, self.height())
 
+    # (mode_key, label, fg_color, bg_color) — 与 UnifiedInputDialog 保持一致
+    _MODE_BTN_CONFIG: list[tuple[str, str, str, str]] = [
+        ("summary", "📝 总结",   "#a6e3a1", "#1a2e1e"),
+        ("explain", "❓ 解释",   "#89b4fa", "#1a2a3e"),
+        ("source",  "🎬 求出处", "#fab387", "#2e1e0e"),
+        ("analyze", "🔍 鉴屎官", "#cba6f7", "#1e1a2e"),
+    ]
+
     _QUICK_ACTIONS: dict[str, list[str]] = {
         "analyze": ["求详细", "有没有更多证据", "帮我反驳"],
         "summary": ["更详细一点", "关键争议是什么"],
@@ -1452,9 +1451,21 @@ class ResultWindow(QWidget):
         layout.setContentsMargins(14, 16, 14, 14)
         layout.setSpacing(8)
 
+        header_row = QHBoxLayout()
         header = QLabel("💬 追问")
         header.setStyleSheet("color: #89b4fa; font-size: 14px; font-weight: bold;")
-        layout.addWidget(header)
+        header_row.addWidget(header)
+        header_row.addStretch()
+        copy_chat_btn = QPushButton("复制记录")
+        copy_chat_btn.setFixedHeight(22)
+        copy_chat_btn.setStyleSheet(
+            "QPushButton { background: #313244; color: #6c7086; font-size: 10px;"
+            " border-radius: 4px; padding: 0 8px; }"
+            "QPushButton:hover { color: #cdd6f4; }"
+        )
+        copy_chat_btn.clicked.connect(self._copy_chat)
+        header_row.addWidget(copy_chat_btn)
+        layout.addLayout(header_row)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -1608,7 +1619,6 @@ class ResultWindow(QWidget):
     def _clear_chat_messages(self):
         """移除消息区所有气泡行（保留末尾 stretch）。"""
         layout = self._chat_msgs_layout
-        # 末尾一项是 stretch，保留；其余全部移除
         while layout.count() > 1:
             item = layout.takeAt(0)
             if item.widget():
@@ -1636,14 +1646,19 @@ class ResultWindow(QWidget):
         row.addStretch()
         return w
 
-    def reload(self, result: dict, image=None, chat_history=None, history_id=None):
+    def reload(self, result: dict, image=None, images=None, chat_history=None, history_id=None):
         """原地刷新卡片内容，窗口不销毁重建，无闪烁。"""
         # opacity=0 屏蔽 DWM 合成中间帧（setUpdatesEnabled 无法阻止 OS 层透明窗口闪烁）
         self.setWindowOpacity(0.0)
         self.setUpdatesEnabled(False)
         self._result = result
-        self._images = [image] if image else []
-        self._image = image
+        if images is not None:
+            self._images = list(images)
+        elif image is not None:
+            self._images = [image]
+        else:
+            self._images = []
+        self._image = self._images[0] if self._images else None
         self._history_id = history_id
         self._follow_up_history = list(chat_history) if chat_history else []
         self._loading_label = None
@@ -1689,6 +1704,112 @@ class ResultWindow(QWidget):
         self.setUpdatesEnabled(True)
         self.repaint()               # 同步强制 paint，backing store 完整后再显示
         self.setWindowOpacity(1.0)
+
+    def _has_full_image(self) -> bool:
+        """判断是否持有可用于 AI 重分析的原图（缩略图太小不可用）。"""
+        if not self._images:
+            return False
+        try:
+            return all(max(img.size) >= 200 for img in self._images)
+        except Exception:
+            return False
+
+    def _make_mode_switch_row(self, current_mode: str) -> "QHBoxLayout":
+        """底部模式切换按钮行：当前模式高亮禁用，其他可点击重跑。"""
+        row = QHBoxLayout()
+        row.setSpacing(6)
+        row.setContentsMargins(0, 0, 0, 0)
+        self._mode_switch_btns = {}
+        can_rerun = self._has_full_image()
+        for mode_key, mode_label, fg, bg in self._MODE_BTN_CONFIG:
+            btn = QPushButton(mode_label)
+            btn.setFixedSize(80, 26)
+            if mode_key == current_mode:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: {bg}; color: {fg}; font-size: 11px;"
+                    f" border: 1px solid {fg}; border-radius: 6px; font-weight: bold; }}"
+                )
+                btn.setEnabled(False)
+            elif not can_rerun:
+                btn.setStyleSheet(
+                    "QPushButton { background: #1e1e2e; color: #45475a; font-size: 11px;"
+                    " border: 1px solid #1e1e2e; border-radius: 6px; }"
+                )
+                btn.setEnabled(False)
+                tip = "仅图片输入支持切换模式" if not self._images else "原图不可用（历史记录仅存缩略图）"
+                btn.setToolTip(tip)
+            else:
+                btn.setStyleSheet(
+                    f"QPushButton {{ background: #1e1e2e; color: #6c7086; font-size: 11px;"
+                    f" border: 1px solid #313244; border-radius: 6px; }}"
+                    f"QPushButton:hover {{ color: {fg}; border-color: {fg}; background: {bg}; }}"
+                )
+                btn.clicked.connect(lambda checked, m=mode_key: self._rerun_with_mode(m))
+            self._mode_switch_btns[mode_key] = btn
+            row.addWidget(btn)
+        return row
+
+    def _add_bottom_bar(self, main_layout: "QVBoxLayout", current_mode: str, include_copy: bool = False):
+        """统一底部栏：模式切换按钮 + (可选)复制结果 + 缩放手柄。"""
+        bar = QHBoxLayout()
+        bar.setContentsMargins(0, 4, 0, 0)
+        bar.addLayout(self._make_mode_switch_row(current_mode))
+        bar.addStretch()
+        if include_copy:
+            copy_btn = QPushButton("复制结果")
+            copy_btn.setFixedHeight(26)
+            copy_btn.setStyleSheet(
+                "QPushButton { background: #313244; color: #89b4fa;"
+                " border-radius: 6px; font-size: 11px; font-weight: bold; padding: 0 14px; }"
+                "QPushButton:hover { background: #45475a; }"
+            )
+            copy_btn.clicked.connect(self._copy_result)
+            bar.addWidget(copy_btn)
+        grip = QSizeGrip(self)
+        grip.setStyleSheet("background: transparent;")
+        bar.addWidget(grip, alignment=Qt.AlignmentFlag.AlignBottom | Qt.AlignmentFlag.AlignRight)
+        main_layout.addLayout(bar)
+
+    def _rerun_with_mode(self, mode: str):
+        """用相同图片以新模式重新分析，完成后原地 reload。"""
+        if not self._images:
+            return
+        for btn in self._mode_switch_btns.values():
+            btn.setEnabled(False)
+        target_btn = self._mode_switch_btns.get(mode)
+        if target_btn:
+            target_btn.setText("分析中…")
+            target_btn.setStyleSheet(
+                "QPushButton { background: #2a2018; color: #f9e2af; font-size: 11px;"
+                " border: 1px solid #f9e2af; border-radius: 6px; padding: 0 10px; }"
+            )
+        images = list(self._images)
+        from screenshot.capture import image_to_base64
+        b64_list = [image_to_base64(img) for img in images]
+
+        def _call():
+            import uuid
+            session_id = str(uuid.uuid4())
+            if mode == "summary":
+                from ai.analyzer import summarize_screenshot
+                result = summarize_screenshot(b64_list, session_id=session_id)
+            elif mode == "explain":
+                from ai.analyzer import explain_screenshot
+                result = explain_screenshot(b64_list, session_id=session_id)
+            elif mode == "source":
+                from ai.analyzer import source_find_screenshot
+                result = source_find_screenshot(b64_list, session_id=session_id)
+            else:
+                from ai.analyzer import analyze_screenshot
+                result = analyze_screenshot(b64_list, session_id=session_id)
+            self._rerun_done.emit(result)
+
+        threading.Thread(target=_call, daemon=True).start()
+
+    def _on_rerun_done(self, result: dict):
+        """Slot：重跑完成，保留原图片原地刷新卡片。"""
+        images = self._images  # reload 会清空，先保存
+        self.reload(result, images=images)
 
     def _make_card(self, h_margin: int = 28, v_margin: int = 22, spacing: int = 16) -> "QVBoxLayout":
         """Create standard card frame, add to root HBoxLayout. Returns inner main_layout."""
@@ -1791,30 +1912,79 @@ class ResultWindow(QWidget):
         self._drag_pos = None
 
     # ── 复制 ──────────────────────────────────────────────────────────────────
+    def _copy_chat(self):
+        """复制追问面板的全部对话记录。"""
+        if not self._follow_up_history:
+            return
+        lines = []
+        for turn in self._follow_up_history:
+            lines.append(f"Q: {turn.get('user', '')}")
+            lines.append(f"A: {turn.get('ai', '')}")
+            lines.append("")
+        text = "\n".join(lines).strip()
+        try:
+            pyperclip.copy(text)
+        except Exception:
+            cb = QApplication.clipboard()
+            if cb:
+                cb.setText(text)
+
     def _copy_result(self):
         lines = []
-        header = self._result.get("header", {})
-        bs = header.get("bullshit_index", 50)
-        truth_label = header.get("truth_label", "")
-        risk_level = header.get("risk_level", "")
-        verdict = header.get("verdict", "")
-        toxic = self._result.get("toxic_review", "")
-        summary = self._result.get("one_line_summary", "")
-        flaws = self._result.get("flaw_list", [])
+        mode = self._result.get("_mode", "analyze")
 
-        lines.append(f"扯淡指数：{bs}/100  {risk_level}")
-        if truth_label:
-            lines.append(f"真实度：{truth_label}")
-        if verdict:
-            lines.append(f"判决：{verdict}")
-        if toxic:
-            lines.append(f"\n评语：{toxic}")
-        if summary:
-            lines.append(f"\n总结：{summary}")
-        if flaws:
-            lines.append("\n破绽：")
-            for f in flaws:
-                lines.append(f"  • {f}")
+        if mode == "analyze":
+            header = self._result.get("header", {})
+            bs = header.get("bullshit_index", 50)
+            risk_level = header.get("risk_level", "")
+            truth_label = header.get("truth_label", "")
+            verdict = header.get("verdict", "")
+            toxic = self._result.get("toxic_review", "")
+            summary = self._result.get("one_line_summary", "")
+            flaws = self._result.get("flaw_list", [])
+            lines.append(f"扯淡指数：{bs}/100  {risk_level}")
+            if truth_label:
+                lines.append(f"真实度：{truth_label}")
+            if verdict:
+                lines.append(f"判决：{verdict}")
+            if toxic:
+                lines.append(f"\n评语：{toxic}")
+            if summary:
+                lines.append(f"\n总结：{summary}")
+            if flaws:
+                lines.append("\n破绽：")
+                for f in flaws:
+                    lines.append(f"  • {f}")
+        elif mode == "summary":
+            if self._result.get("headline"):
+                lines.append(f"标题：{self._result['headline']}")
+            if self._result.get("core_idea"):
+                lines.append(f"\n核心：{self._result['core_idea']}")
+            for pt in self._result.get("key_points", []):
+                lines.append(f"  • {pt}")
+        elif mode == "explain":
+            if self._result.get("subject"):
+                lines.append(f"主题：{self._result['subject']}")
+            if self._result.get("short_answer"):
+                lines.append(f"\n{self._result['short_answer']}")
+            if self._result.get("detail"):
+                lines.append(f"\n{self._result['detail']}")
+        elif mode == "source":
+            if self._result.get("title"):
+                lines.append(f"作品：{self._result['title']}")
+            if self._result.get("episode"):
+                lines.append(f"集数：{self._result['episode']}")
+            if self._result.get("scene"):
+                lines.append(f"\n场景：{self._result['scene']}")
+            if self._result.get("note"):
+                lines.append(f"\n备注：{self._result['note']}")
+
+        # 追加追问对话记录
+        if self._follow_up_history:
+            lines.append("\n── 追问记录 ──")
+            for turn in self._follow_up_history:
+                lines.append(f"Q: {turn.get('user', '')}")
+                lines.append(f"A: {turn.get('ai', '')}")
 
         text = "\n".join(lines)
         try:

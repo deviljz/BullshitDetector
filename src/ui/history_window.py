@@ -2,13 +2,14 @@
 
 from datetime import datetime
 
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QVBoxLayout,
     QWidget,
@@ -42,7 +43,7 @@ class HistoryWindow(QWidget):
             | Qt.WindowType.WindowStaysOnTopHint
             | Qt.WindowType.WindowCloseButtonHint
         )
-        self.setFixedWidth(560)
+        self.setFixedSize(560, 640)
         self.setStyleSheet(
             "QWidget { background: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; }"
         )
@@ -94,12 +95,24 @@ class HistoryWindow(QWidget):
         sep.setStyleSheet("color: #313244;")
         root.addWidget(sep)
 
-        # 条目列表（直接布局，不滚动，自动撑高窗口）
+        # 条目列表（QScrollArea 固定高度，内容可滚动）
         self._list_widget = QWidget()
+        self._list_widget.setStyleSheet("background: transparent;")
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(0, 0, 0, 0)
+        self._list_layout.setContentsMargins(0, 0, 4, 0)
         self._list_layout.setSpacing(6)
-        root.addWidget(self._list_widget)
+
+        _scroll = QScrollArea()
+        _scroll.setWidget(self._list_widget)
+        _scroll.setWidgetResizable(True)
+        _scroll.setFrameShape(QFrame.Shape.NoFrame)
+        _scroll.setStyleSheet(
+            "QScrollArea { background: transparent; border: none; }"
+            "QScrollBar:vertical { width: 6px; background: #1e1e2e; border-radius: 3px; }"
+            "QScrollBar::handle:vertical { background: #45475a; border-radius: 3px; min-height: 20px; }"
+            "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }"
+        )
+        root.addWidget(_scroll, 1)
 
         self._all_entries: list = []
         self._reload()
@@ -136,7 +149,7 @@ class HistoryWindow(QWidget):
             for entry in entries:
                 self._list_layout.addWidget(self._make_row(entry))
 
-        QTimer.singleShot(0, self.adjustSize)
+        pass  # 固定高度窗口，不需要 adjustSize
 
     def _on_search(self, text: str):
         self._render_entries(self._all_entries, text)

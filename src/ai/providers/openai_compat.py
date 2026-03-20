@@ -485,7 +485,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages.append({"role": "assistant", "content": turn["ai"]})
         messages.append({"role": "user", "content": question})
         try:
-            content, _, raw = self._tool_loop(messages, 1500, force_first_tool=False)
+            content, _, raw = self._tool_loop(messages, 4096, force_first_tool=False)
             text = content or "（无回复）"
             token_dict = {"model": self._model, "input": raw["input_tokens"], "output": raw["output_tokens"]}
             return text, token_dict
