@@ -330,6 +330,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         try:
             if len(raw.strip()) < 20:  # truncated / empty response from API
                 return [], tokens
+            # Detect truncated JSON: if raw doesn't end with closing brace, response was cut off
+            raw_stripped = raw.strip()
+            if not raw_stripped.endswith("}") and not raw_stripped.endswith("]"):
+                return [], tokens
             data = parse_json(raw)
             if isinstance(data, dict):
                 # Only treat as full analysis if it has meaningful content (not a repaired empty shell)
@@ -546,16 +550,24 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 _dbg.setdefault("warnings", []).append(f"stage3_failed: {s3_err}")
             result = normalize_result(result_raw)
             all_logs = []
-            # Extract claim_types in order from Stage 2 results
+            # Extract claim_types and original claim texts from Stage 2 results
             stage2_types: list[str] = []
+            stage2_claims: list[str] = []
             for r in claim_results:
                 all_logs.extend(r.pop("_search_log", []))
                 stage2_types.append(r.get("claim_type", "fact"))
-            # Merge claim_type into final claim_verification list by position
+                stage2_claims.append(r.get("claim", ""))
+            # Merge claim_type and restore truncated claim text by position
             final_cvs = result.get("claim_verification", [])
             for i, cv in enumerate(final_cvs):
                 if not cv.get("claim_type"):
                     cv["claim_type"] = stage2_types[i] if i < len(stage2_types) else "fact"
+                # Restore original claim text if Stage 3 truncated it
+                if i < len(stage2_claims) and stage2_claims[i]:
+                    orig = stage2_claims[i]
+                    curr = cv.get("claim", "")
+                    if len(curr) < len(orig) * 0.8:
+                        cv["claim"] = orig
             result["_search_log"] = all_logs
             result["_token_usage"] = total
             result["_path"] = "staged_full"
