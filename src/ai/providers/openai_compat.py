@@ -471,7 +471,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         try:
             from config.manager import load as _load_cfg
             cfg = _load_cfg()
-            max_workers = cfg.get("staged_max_workers", 2)
+            max_workers = cfg.get("staged_max_workers", 5)
 
             total = {"input_tokens": 0, "output_tokens": 0}
 
