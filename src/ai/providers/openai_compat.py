@@ -16,9 +16,12 @@ from ai.providers.base import BaseLLMProvider
 from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
-from ai.debug_log import make_entry, make_stage, set_result, write_entry, sanitize_messages
+from ai.debug_log import make_entry, make_stage, finish_stage, set_result, write_entry, sanitize_messages
 
 MAX_TOOL_ROUNDS = 8  # 并行调用后每轮可发多个请求，8轮足够复杂案例
+
+# 关闭思考模式（适用于简单提取/决策步骤，节省 token 和延迟）
+_NO_THINKING = {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}}
 
 _ANALYZE_RETRY_PROMPT = (
     "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
@@ -205,6 +208,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if _stage is not None:
             _stage["response"] = (content or "")[:500]
             _stage["tokens"] = {"input": total_in, "output": total_out}
+            finish_stage(_stage)
 
         return content, search_log, {"input_tokens": total_in, "output_tokens": total_out}
 
@@ -314,6 +318,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             user_content = self._image_content(images, f"文章内容：\n\n{text[:6000]}")
         else:
             user_content = [{"type": "text", "text": f"文章内容：\n\n{text[:6000]}"}]
+        _t0 = time.monotonic()
         resp = self._create_with_retry(
             model=self._model,
             messages=[
@@ -321,6 +326,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": user_content},
             ],
             max_tokens=4000,  # thinking 模型会消耗 thinking tokens，需要足够余量给实际输出
+            **_NO_THINKING,
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
@@ -331,6 +337,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 "name": "extract_claims",
                 "response": raw[:500],
                 "tokens": {"input": tin, "output": tout},
+                "elapsed_s": round(time.monotonic() - _t0, 2),
             })
         try:
             if len(raw.strip()) < 20:  # truncated / empty response from API
@@ -381,7 +388,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
         content, search_log, tokens = self._tool_loop(
-            messages, 800, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
+            messages, 2000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim_text[:40]}",
             temperature=0,
@@ -400,6 +407,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def _reflect(self, article_text: str, claim_results: list[dict], trace: list | None = None) -> list[str]:
         """Stage 2.5: Decide if additional claims need investigation."""
         clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        _t0 = time.monotonic()
         resp = self._create_with_retry(
             model=self._model,
             messages=[
@@ -407,7 +415,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": [{"type": "text", "text":
                     f"文章（摘要）：{article_text[:600]}\n\n已核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
             ],
-            max_tokens=600,
+            max_tokens=2000,
+            **_NO_THINKING,
         )
         raw = resp.choices[0].message.content or ""
         tin = resp.usage.prompt_tokens if resp.usage else 0
@@ -417,6 +426,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 "name": "reflect",
                 "response": raw[:300],
                 "tokens": {"input": tin, "output": tout},
+                "elapsed_s": round(time.monotonic() - _t0, 2),
             })
         try:
             data = parse_json(raw)
@@ -431,6 +441,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         user_text = (f"文章内容：\n\n{article_text[:8000]}\n\n"
                      f"---\n【已完成的逐条声明核查，原样复制到输出的 claim_verification，禁止修改】：\n"
                      f"{json.dumps(clean, ensure_ascii=False)}")
+        _t0 = time.monotonic()
         resp = self._create_with_retry(
             model=self._model,
             messages=[
@@ -448,6 +459,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 "name": "final_verdict",
                 "response": raw[:500],
                 "tokens": {"input": tin, "output": tout},
+                "elapsed_s": round(time.monotonic() - _t0, 2),
             })
         return parse_json(raw), {"input_tokens": tin, "output_tokens": tout}
 

@@ -9,6 +9,7 @@ debug_log.py — 全链路调试日志（精简版）
 import json
 import os
 import secrets
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -72,12 +73,13 @@ def make_entry(mode: str, input_info: dict) -> dict:
         "stages": [],
         "result_summary": {},
         "total_tokens": {"input": 0, "output": 0},
+        "_t0": time.monotonic(),
     }
 
 
 def make_stage(name: str, messages: list | None = None) -> dict:
     """创建精简 stage dict，可选从 messages 提取 user_hint。"""
-    stage: dict = {"name": name, "tool_calls": [], "response": "", "tokens": {}}
+    stage: dict = {"name": name, "tool_calls": [], "response": "", "tokens": {}, "_t0": time.monotonic()}
     if messages:
         hint = _user_hint(messages)
         if hint:
@@ -85,10 +87,20 @@ def make_stage(name: str, messages: list | None = None) -> dict:
     return stage
 
 
+def finish_stage(stage: dict) -> None:
+    """记录 stage 耗时（秒），移除内部计时字段。"""
+    t0 = stage.pop("_t0", None)
+    if t0 is not None:
+        stage["elapsed_s"] = round(time.monotonic() - t0, 2)
+
+
 def set_result(entry: dict, result: dict, token_dict: dict, path: str = ""):
     """将最终结果摘要写入 entry，同时把 call_id 写回 result。"""
     if path:
         entry["path"] = path
+    t0 = entry.pop("_t0", None)
+    if t0 is not None:
+        entry["total_elapsed_s"] = round(time.monotonic() - t0, 2)
     entry["total_tokens"] = {
         "input": token_dict.get("input", 0),
         "output": token_dict.get("output", 0),
