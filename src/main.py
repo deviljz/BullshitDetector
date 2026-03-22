@@ -14,7 +14,7 @@ from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY, TEXT_HOTKEY
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
-from ai.analyzer import analyze_screenshot, analyze_text, analyze_text_staged
+from ai.analyzer import analyze_screenshot, analyze_screenshot_staged, analyze_text, analyze_text_staged
 from ui.unified_input_dialog import UnifiedInputDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
@@ -192,7 +192,10 @@ class BullshitDetectorApp:
 
     def _run_analysis(self, image_base64: str, captured: dict):
         session_id = captured.get("session_id")
-        result = analyze_screenshot([image_base64], session_id=session_id)
+        if load_config().get("analysis_mode") == "staged":
+            result = analyze_screenshot_staged([image_base64], session_id=session_id)
+        else:
+            result = analyze_screenshot([image_base64], session_id=session_id)
         self._busy = False
         self.signals.show_result.emit(result, captured["position"], captured["loading"], captured["images"])
 
@@ -254,7 +257,10 @@ class BullshitDetectorApp:
             elif mode == "source":
                 fn = _make_img_fn(lambda: source_find_screenshot(b64_list, extra, session_id=session_id))
             else:
-                fn = _make_img_fn(lambda: analyze_screenshot(b64_list, extra, session_id=session_id))
+                if load_config().get("analysis_mode") == "staged":
+                    fn = _make_img_fn(lambda: analyze_screenshot_staged(b64_list, extra, session_id=session_id))
+                else:
+                    fn = _make_img_fn(lambda: analyze_screenshot(b64_list, extra, session_id=session_id))
         else:
             images = None
             text = dlg.get_text()
