@@ -13,6 +13,9 @@ call .venv\Scripts\activate.bat
 python -m pip install --upgrade pip -q
 pip install -r requirements.txt
 
+echo [3/3] Installing Playwright browser (Chromium)...
+playwright install chromium
+
 echo.
-echo [3/3] Done! Run start.bat to launch.
+echo Done! Run start.bat to launch.
 pause

@@ -10,3 +10,4 @@ readability-lxml>=0.8.1
 ddgs>=0.1.0
 tavily-python>=0.3.0
 json-repair>=0.28.0
+playwright>=1.40.0
