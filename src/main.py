@@ -188,7 +188,12 @@ class BullshitDetectorApp:
             target = self._run_source_find
         else:
             target = self._run_analysis
-        threading.Thread(target=target, args=(b64, captured), daemon=True).start()
+        def _safe_target(*args, **kwargs):
+            try:
+                target(*args, **kwargs)
+            except Exception:
+                traceback.print_exc()
+        threading.Thread(target=_safe_target, args=(b64, captured), daemon=True).start()
 
     def _run_analysis(self, image_base64: str, captured: dict):
         session_id = captured.get("session_id")
@@ -282,10 +287,12 @@ class BullshitDetectorApp:
                     fn = lambda: analyze_text_staged(text, images or None, session_id=session_id)
                 else:
                     fn = lambda: analyze_text(text, session_id=session_id)
-        threading.Thread(
-            target=lambda: self.signals.show_result.emit(fn(), None, loading, images),
-            daemon=True,
-        ).start()
+        def _run():
+            try:
+                self.signals.show_result.emit(fn(), None, loading, images)
+            except Exception:
+                traceback.print_exc()
+        threading.Thread(target=_run, daemon=True).start()
 
     def _open_history(self):
         from ui.history_window import HistoryWindow

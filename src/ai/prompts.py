@@ -506,9 +506,9 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
     "intent_check": "意图检测",
     "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书"
   }},
-  "toxic_review": "{t_output_review}",
+  "toxic_review": "{{t_output_review}}",
   "flaw_list": ["破绽1：具体指出哪里夸大/无来源/意图不纯", "破绽2：..."],
-  "one_line_summary": "{t_output_summary}"
+  "one_line_summary": "{{t_output_summary}}"
 }}
 
 【输出格式强制要求】输出必须是纯净的标准 JSON 格式，绝对不要包含任何 Markdown 代码块标记（如 ```json）。所有字段中的双引号必须使用反斜杠转义（\"），禁止使用未转义的换行符。""".replace(
