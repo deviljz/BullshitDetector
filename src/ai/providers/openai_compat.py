@@ -21,7 +21,7 @@ from ai.debug_log import make_entry, make_stage, finish_stage, set_result, write
 MAX_TOOL_ROUNDS = 8  # 并行调用后每轮可发多个请求，8轮足够复杂案例
 
 # 关闭思考模式（适用于简单提取/决策步骤，节省 token 和延迟）
-_NO_THINKING = {"extra_body": {"google": {"thinking_config": {"thinking_budget": 0}}}}
+_NO_THINKING = {"reasoning_effort": "none"}
 
 _ANALYZE_RETRY_PROMPT = (
     "请根据以上所有信息，严格按照系统提示定义的 JSON 格式输出最终分析结果。\n"
