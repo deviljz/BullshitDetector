@@ -395,7 +395,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim_text[:40]}",
-            temperature=0, extra_create_kwargs={"reasoning_effort": "low"},
+            temperature=0, extra_create_kwargs={"reasoning_effort": "medium"},
         )
         try:
             result = parse_json(content)
