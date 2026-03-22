@@ -49,8 +49,32 @@ def _search_tavily(query: str, api_key: str, max_results: int = 5) -> List[dict]
         return [{"error": f"Tavily 搜索失败: {e}"}]
 
 
+def _search_serper(query: str, api_key: str, max_results: int = 5) -> List[dict]:
+    try:
+        import requests as _req
+        resp = _req.post(
+            "https://google.serper.dev/search",
+            headers={"X-API-KEY": api_key, "Content-Type": "application/json"},
+            json={"q": query, "num": max_results},
+            timeout=15,
+        )
+        if resp.status_code != 200:
+            return [{"error": f"Serper 搜索失败: {resp.status_code} {resp.text[:200]}"}]
+        data = resp.json()
+        results = []
+        for r in data.get("organic", [])[:max_results]:
+            results.append({
+                "title": r.get("title", ""),
+                "snippet": r.get("snippet", ""),
+                "url": r.get("link", ""),
+            })
+        return results or [{"error": "Serper 未返回结果"}]
+    except Exception as e:
+        return [{"error": f"Serper 搜索失败: {e}"}]
+
+
 class SearchProvider:
-    """搜索引擎门面，根据 config 自动选择 DDG 或 Tavily。"""
+    """搜索引擎门面，根据 config 自动选择 DDG / Tavily / Serper。"""
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
         from config.manager import load as _load_cfg
@@ -61,6 +85,11 @@ class SearchProvider:
             if not key or key.startswith("tvly-xxx"):
                 return [{"error": "Tavily API Key 未配置，请在 config.json 中填写 tavily_api_key"}]
             return _search_tavily(query, key, max_results)
+        if provider == "serper":
+            key = cfg.get("serper_api_key", "")
+            if not key or key.startswith("your-"):
+                return [{"error": "Serper API Key 未配置，请在 config.json 中填写 serper_api_key"}]
+            return _search_serper(query, key, max_results)
         return _search_ddg(query, max_results)
 
 

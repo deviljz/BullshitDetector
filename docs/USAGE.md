@@ -114,8 +114,11 @@
 |------|---------|------|
 | **DuckDuckGo**（默认）| ❌ 需要代理/VPN | 无需 Key |
 | **Tavily** | ✅ 直连可用 | 需 API Key，免费 1000 次/月 |
+| **Serper Google** | ✅ 直连可用 | 需 API Key，免费 2500 次 |
 
 托盘菜单 → 搜索引擎 → 实时切换，无需重启。
+
+> Serper 使用 Google 搜索结果，中文内容质量较高。注册地址：serper.dev，每月免费额度 2500 次，config.json 中填写 `serper_api_key`。
 
 ---
 
