@@ -168,7 +168,8 @@ def _build_prompt(t: dict) -> str:
    - 社交媒体事件搜索无结果 → 填"? 无法核实"，**不得**填"✗ 伪造"
    - **核实一致性**：全部 verdict 为「✓」→ bullshit_index **必须 ≤ 30**（50≠"不确定"，50="一半内容是假的"）；有「? 无法核实」但无「✗ 伪造」→ 上限 45；只有存在「✗ 伪造」时才允许 > 50
    - **回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。
-4. {t['self_audit_summary']}
+4. **caveats 填写**：检查以下情况写入 caveats 数组（每条一句话，最多4条）：归因错误（"X官方表示"但实为第三方估算）、叙事框架偏差（省略不利对比、将普通成绩包装成异常突破）、财务数据隐性前提（只算开发预算不含宣发/平台分成）。无则填 `[]`。
+5. {t['self_audit_summary']}
 
 ---
 
@@ -204,8 +205,10 @@ def _build_prompt(t: dict) -> str:
     "time_check": "时间线核查：有绝对日期→以该日期为准核查；只有相对时间或无日期→通过事件线索搜索推断大致年份，填写如'推断约为YYYY年[事件描述]期间内容'；仅当内容自称当前最新事件而证据显示是旧事重包装时，才判定为旧事嫁接",
     "entity_check": "机构/人名/来源核查",
     "physics_check": "物理常识核查；含图片时检查镜像翻转（水印/文字/Logo呈镜像→翻转规避检测，在 flaw_list 指出）",
-    "source_independence_note": "有效信源总数及同源转载情况"
+    "source_independence_note": "有效信源总数及同源转载情况",
+    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准（如续作对比前作同期）？是否将普通成绩包装成异常突破？"
   }},
+  "caveats": ["重要提示1：归因/框架/隐性前提问题（如有）", "..."],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
     "破绽1：具体指出哪里造假、为何不可信",
@@ -320,6 +323,7 @@ def _build_article_prompt(t: dict) -> str:
 3. {t['self_audit_summary']}
 4. **回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。
 5. **⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。
+6. **caveats 填写**：检查以下情况写入 caveats 数组（每条一句话，最多4条）：归因错误（"X官方表示"但实为第三方估算）、叙事框架偏差（将普通成绩包装成异常突破、省略不利对比如续作不如前作同期）、财务数据隐性前提（只算开发预算不含宣发/平台分成）、重要对比基准遗漏。无则填 `[]`。
 
 ---
 
@@ -357,10 +361,12 @@ def _build_article_prompt(t: dict) -> str:
     "physics_check": "技术常识核查：文章的技术声明是否符合行业共识与基本科学原理",
     "source_independence_note": "信源独立性：有效信源总数及是否存在同源转载情况",
     "hype_check": "夸大检测：核心结论是否远超其证据所能支撑的范围，是否存在夸大表述",
-    "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或风险信息",
+    "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或关键对比基准（如：续作销量好，但同期是否不如前作？）",
     "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图",
-    "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书；若存在请具体说明谬误结构"
+    "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书；若存在请具体说明谬误结构",
+    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准？是否将普通成绩包装成异常突破（如将续作依托前作口碑的正常销量渲染成天才从零崛起）？"
   }},
+  "caveats": ["重要提示1：归因错误/框架偏差/隐性前提/遗漏对比（如有）", "..."],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": [
     "破绽1：具体指出哪里夸大/无来源/意图不纯",
@@ -412,6 +418,12 @@ def get_claim_verify_prompt() -> str:
 - 全部来自当事方官网/PR/公告 → **仅官方声明**
 将结论填入 `source_genealogy` 字段。同源转载只算1个有效信源，effective_sources 必须相应降低。
 
+## 归因核查（声明含"X官方表示/X称/X宣布"时必须执行）
+若声明将结论归因于特定主体（如"Sucker Punch官方表示""某公司宣布"），必须搜索确认：
+- 该主体是否真的发表过此声明？
+- 还是被第三方（分析机构/记者/媒体）估算后归因给该主体？
+若发现归因有误，在 `attribution_note` 中写明真实来源。
+
 ## 判断决策树（必须按顺序执行，第一个匹配即停止）
 
 **步骤1 — 先检查矛盾**：独立来源（非当事方）的数据明显与声明不符 → verdict = "✗ 伪造"，结束。
@@ -432,6 +444,7 @@ def get_claim_verify_prompt() -> str:
 ## 输出格式（JSON）
 {{"verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实",
   "source_genealogy": "只填以下代码之一：multi_independent / same_source_syndicated / official_only / unknown",
+  "attribution_note": "若声明归因主体有误（如声称官方但实为第三方估算），在此说明真实来源；无问题填空字符串",
   "effective_sources": 数量（同源转载只算1个）,
   "best_source_type": "primary/independent/syndicated/self_reported/none",
   "note": "搜索过程和判断依据（100字以上）",
@@ -484,6 +497,16 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
 
 **⚠️ 官方自述财务类声明下限**：claim_verification 中含「✓ 官方自述」且该声明涉及财务/销售/回本/收入数据，bullshit_index **不得低于 20**（官方自述≠独立核实，缺乏第三方财务审计，不可给满分可信）。
 
+## caveats 填写规则（必须在输出前完成）
+
+检查以下情况，有则写入 caveats 数组（每条一句话，最多4条）：
+1. claim_verification 中任何 `attribution_note` 非空 → 写"归因错误：[attribution_note内容]"
+2. 叙事框架存在偏差（如将正常续作销量包装成异常突破、省略不利对比） → 写具体偏差
+3. 财务类声明未包含完整成本（如只算开发预算不含宣发/平台分成） → 写"[声明]的回本计算未含宣发成本，实际回本周期更长"
+4. 重要对比基准被省略（如续作销量好但不如前作同期） → 写具体遗漏对比
+
+无上述问题则填空数组 `[]`。
+
 ## risk_level 映射（必须严格遵守）
 
 - 0-30 → "✅ 基本可信"
@@ -521,8 +544,10 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
     "hype_check": "夸大检测",
     "missing_info": "遗漏信息",
     "intent_check": "意图检测",
-    "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书"
+    "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书",
+    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准？是否将普通成绩包装成异常突破？"
   }},
+  "caveats": ["重要提示1：归因错误/框架偏差/隐性前提/遗漏对比（如有，从claim_verification的attribution_note汇总）", "..."],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": ["破绽1：具体指出哪里夸大/无来源/意图不纯", "破绽2：..."],
   "one_line_summary": "{{t_output_summary}}"

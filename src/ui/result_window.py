@@ -464,6 +464,17 @@ class ResultWindow(QWidget):
 
         left_col.addStretch()
 
+        # ── 右列：重要提示 caveats（默认展开）────────────────────────────────────
+        caveats: list = [c for c in self._result.get("caveats", []) if c and c.strip() and "如有" not in c]
+        if caveats:
+            cav_sec = CollapsibleSection("⚠️ 重要提示", collapsed=False)
+            for cav in caveats:
+                cav_lbl = QLabel(f"• {cav}")
+                cav_lbl.setWordWrap(True)
+                cav_lbl.setStyleSheet("color: #fab387; font-size: 11px; padding: 1px 0;")
+                cav_sec._content_layout.addWidget(cav_lbl)
+            right_col.addWidget(cav_sec)
+
         # ── 右列：声明核查（默认展开）──────────────────────────────────────────
         claims: list = self._result.get("claim_verification", [])
         if claims:
@@ -480,6 +491,12 @@ class ResultWindow(QWidget):
                 v_lbl.setWordWrap(True)
                 v_lbl.setStyleSheet(f"color: {color}; font-size: 11px;")
                 claim_sec._content_layout.addWidget(v_lbl)
+                attr_note = c.get("attribution_note", "")
+                if attr_note and attr_note.strip():
+                    a_lbl = QLabel(f"    ⚠ 归因：{attr_note}")
+                    a_lbl.setWordWrap(True)
+                    a_lbl.setStyleSheet("color: #fab387; font-size: 10px;")
+                    claim_sec._content_layout.addWidget(a_lbl)
                 eff = c.get("effective_sources")
                 src_type = c.get("best_source_type", "")
                 if eff is not None or (src_type and src_type not in ("", "none")):
