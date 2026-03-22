@@ -53,6 +53,20 @@ def analyze_text(text: str, session_id: str | None = None) -> dict:
     return result
 
 
+_TITLE_ISSUE_KEYWORDS = ("因果", "谬误", "夸大", "误导", "标题党", "无关数据", "简化", "绝对化", "煽情")
+
+
+def _has_title_issue(result: dict) -> bool:
+    """title_logic_check 检测到标题问题时返回 True。"""
+    tlc = (result.get("investigation_report") or {}).get("title_logic_check") or ""
+    if not tlc or len(tlc) < 5:
+        return False
+    no_issue = ("无问题", "无明显", "无因果", "标题与", "一致", "合理", "无误")
+    if any(kw in tlc for kw in no_issue):
+        return False
+    return any(kw in tlc for kw in _TITLE_ISSUE_KEYWORDS)
+
+
 def _enforce_bi_floor(result: dict) -> dict:
     """Enforce bullshit_index floor based on claim_verification verdicts."""
     cv = result.get("claim_verification", []) or []
@@ -68,6 +82,8 @@ def _enforce_bi_floor(result: dict) -> dict:
         bi = max(bi, 56)
     elif unverified:
         bi = max(bi, 31)
+    if _has_title_issue(result):
+        bi = min(100, bi + 10)
     hdr["bullshit_index"] = bi
     rl = ("🚨 极度危险" if bi > 80 else
           "🔶 高度警惕" if bi > 55 else
