@@ -323,7 +323,9 @@ def _build_article_prompt(t: dict) -> str:
 3. {t['self_audit_summary']}
 4. **回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。
 5. **⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。
+   **【narrative 例外】**：若 claim_verification 中存在 claim_type="narrative" 的条目且其 verdict 为「✓」，说明该叙事论点未被推翻但并不等于客观事实——**每条 narrative ✓ 将 bullshit_index 基准上调 10**（叙事论点本质上是可辩驳的解释框架，不是可证伪的事实）。若所有 fact 类声明均为「✓」但有2条 narrative 类「✓」，bi = 20（基准）+ 10×2 = 40。
 6. **caveats 填写**：检查以下情况写入 caveats 数组（每条一句话，最多4条）：归因错误（"X官方表示"但实为第三方估算）、叙事框架偏差（将普通成绩包装成异常突破、省略不利对比如续作不如前作同期）、财务数据隐性前提（只算开发预算不含宣发/平台分成）、重要对比基准遗漏。无则填 `[]`。
+   **【narrative 强制】**：若 claim_verification 中存在 claim_type="narrative" 的条目，caveats **必须包含至少1条**针对该叙事论点的质疑（如"该论点省略了X对比数据""将相关性解读为因果"），不得为空数组。
 
 ---
 
@@ -342,7 +344,7 @@ def _build_article_prompt(t: dict) -> str:
     {{"claim": "核心声明（一句话）", "verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实", "effective_sources": 0, "best_source_type": "primary/independent/syndicated/self_reported/none", "note": "搜索证据或判断依据", "sources": [{{"url": "https://...", "title": "页面标题"}}]}}
   ],
   "header": {{
-    "bullshit_index": 0-100的整数（从上方claim_verification推导：全部✓→0-30，有?无✗→31-55，有✗→56+；铁律命中时取铁律范围更高者优先）,
+    "bullshit_index": 0-100的整数（从上方claim_verification推导：全部fact✓且无narrative→0-30；每条narrative✓额外+10；有?无✗→31-55；有✗→56+；铁律命中时取铁律范围更高者优先）,
     "truth_label": "生动描述，例如：85% 披着科技外衣的营销软文 / 20% 基本属实的行业分析",
     "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按上方映射规则填写）",
     "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
