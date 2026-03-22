@@ -320,7 +320,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "system", "content": get_claim_extract_prompt()},
                 {"role": "user", "content": user_content},
             ],
-            max_tokens=1000,
+            max_tokens=4000,  # thinking 模型会消耗 thinking tokens，需要足够余量给实际输出
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
