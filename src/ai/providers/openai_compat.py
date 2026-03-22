@@ -392,7 +392,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
         content, search_log, tokens = self._tool_loop(
-            messages, 2000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
+            messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim_text[:40]}",
             temperature=0,
