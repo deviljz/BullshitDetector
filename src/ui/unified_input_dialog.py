@@ -191,8 +191,15 @@ class UnifiedInputDialog(QDialog):
         raw = self._text_edit.toPlainText().strip()
         if raw:
             if raw.startswith(("http://", "https://")) and "\n" not in raw:
-                from text_fetcher import fetch_article
-                self._fetched_text = fetch_article(raw)
+                if "toutiao.com" in raw:
+                    from text_fetcher import fetch_toutiao
+                    text, fetched_imgs = fetch_toutiao(raw)
+                    self._fetched_text = text
+                    for img in fetched_imgs:
+                        self._add_image(img)
+                else:
+                    from text_fetcher import fetch_article
+                    self._fetched_text = fetch_article(raw)
             else:
                 self._fetched_text = raw
         self.accept()

@@ -1,6 +1,7 @@
 """text_fetcher.py —— 从 URL 提取网页正文"""
 
 import html
+import io as _io
 import re
 
 import requests
@@ -65,3 +66,72 @@ def fetch_article(url: str) -> str:
         return f"{title}\n\n{body_text}" if title else body_text
     except Exception:
         return url
+
+
+def fetch_toutiao(url: str) -> tuple[str, list]:
+    """用 Playwright 提取今日头条文章正文（文字 + 图片）。
+
+    返回 (text, [PIL.Image, ...])。失败时返回 (url, [])。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+        from PIL import Image as PILImage
+    except ImportError:
+        return url, []
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            context = browser.new_context(viewport={"width": 1280, "height": 900})
+            page = context.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(1500)
+
+            # 滚动触发懒加载（快速，每步 150ms）
+            for pos in range(0, 12000, 700):
+                page.evaluate(f"window.scrollTo(0, {pos})")
+                page.wait_for_timeout(150)
+            page.wait_for_timeout(800)
+
+            # 提取正文文字（仅 .wtt-content 容器）
+            raw_text = page.evaluate("""() => {
+                const el = document.querySelector('.wtt-content');
+                return el ? el.innerText : '';
+            }""") or ""
+            text = re.sub(r"[ \t]+", " ", raw_text)
+            text = re.sub(r"\n{3,}", "\n\n", text).strip()
+            if len(text) > 3000:
+                text = text[:3000] + "…（已截断）"
+
+            # 提取正文图片（仅 .wtt-content 容器，排除头像）
+            srcs = page.evaluate("""() => {
+                const container = document.querySelector('.wtt-content');
+                if (!container) return [];
+                return Array.from(container.querySelectorAll('img'))
+                    .map(img => img.src || img.dataset.src || '')
+                    .filter(src => src.startsWith('http'));
+            }""") or []
+            srcs = [s for s in srcs if "user-avatar" not in s and "avatar" not in s]
+
+            images = []
+            for src in srcs[:12]:  # 最多尝试 12 张
+                try:
+                    resp = context.request.get(src, timeout=10000)
+                    if not resp.ok:
+                        continue
+                    data = resp.body()
+                    if len(data) < 15000:  # 跳过 <15KB 的图标/装饰图
+                        continue
+                    img = PILImage.open(_io.BytesIO(data)).convert("RGB")
+                    if img.width < 200 or img.height < 100:  # 跳过过窄/矮的图
+                        continue
+                    images.append(img)
+                    if len(images) >= 6:  # 最多发 6 张给 AI
+                        break
+                except Exception:
+                    continue
+
+            browser.close()
+            return text or url, images
+    except Exception:
+        return url, []
