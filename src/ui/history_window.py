@@ -214,6 +214,18 @@ class HistoryWindow(QWidget):
         time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         h.addWidget(time_lbl)
 
+        log_file = entry.get("result", {}).get("_log_file")
+        if log_file:
+            log_btn = QPushButton("📋")
+            log_btn.setFixedSize(22, 22)
+            log_btn.setToolTip(f"复制日志文件名：{log_file}")
+            log_btn.setStyleSheet(
+                "QPushButton { background: transparent; color: #6c7086; border: none; font-size: 11px; }"
+                "QPushButton:hover { color: #a6e3a1; }"
+            )
+            log_btn.clicked.connect(lambda _, f=log_file: self._copy_log_file(f))
+            h.addWidget(log_btn)
+
         del_btn = QPushButton("✕")
         del_btn.setFixedSize(22, 22)
         del_btn.setStyleSheet(
@@ -265,6 +277,10 @@ class HistoryWindow(QWidget):
             import history as hs
             hs.clear_all()
             self._reload()
+
+    def _copy_log_file(self, filename: str):
+        from PyQt6.QtWidgets import QApplication
+        QApplication.clipboard().setText(filename)
 
     def _delete(self, entry_id: str):
         import history as hs

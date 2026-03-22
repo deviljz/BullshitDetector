@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 
-def _get_log_path() -> str:
+def _get_log_dir() -> str:
     try:
         from config.manager import load as load_config
         cfg = load_config()
@@ -21,7 +21,7 @@ def _get_log_path() -> str:
     except Exception:
         log_dir = "logs"
     Path(log_dir).mkdir(exist_ok=True)
-    return os.path.join(log_dir, "debug.jsonl")
+    return log_dir
 
 
 def sanitize_messages(messages: list) -> list:
@@ -93,8 +93,9 @@ def set_result(entry: dict, result: dict, token_dict: dict, path: str = ""):
         "input": token_dict.get("input", 0),
         "output": token_dict.get("output", 0),
     }
-    # 把 call_id 写进 result，供 history 存储做关联
+    # 把 call_id 和日志文件名写进 result，供 history 存储做关联
     result["_call_id"] = entry["call_id"]
+    result["_log_file"] = f"{entry['call_id']}.json"
 
     hdr = result.get("header") or {}
     cv = result.get("claim_verification") or []
@@ -117,9 +118,11 @@ def set_result(entry: dict, result: dict, token_dict: dict, path: str = ""):
 
 
 def write_entry(entry: dict):
-    """追加写一条 JSONL。从不抛异常。"""
+    """每次调用写一个独立 JSON 文件（logs/<call_id>.json）。从不抛异常。"""
     try:
-        with open(_get_log_path(), "a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        log_dir = _get_log_dir()
+        path = os.path.join(log_dir, f"{entry['call_id']}.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(entry, f, ensure_ascii=False, indent=2)
     except Exception as e:
         print(f"[debug_log] write failed: {e}")

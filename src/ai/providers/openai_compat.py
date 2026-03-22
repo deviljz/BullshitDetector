@@ -296,8 +296,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "system", "content": get_claim_extract_prompt()},
                 {"role": "user", "content": user_content},
             ],
-            max_tokens=400,
-            response_format={"type": "json_object"},
+            max_tokens=1000,
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
