@@ -113,6 +113,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         query_cache: dict | None = None,
         trace: list | None = None,
         stage_name: str = "tool_loop",
+        temperature: float | None = None,
     ) -> tuple[str | None, list[dict], dict]:
         """
         Run multi-round tool loop (ReAct pattern).
@@ -134,6 +135,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             _stage = make_stage(stage_name, messages)
             trace.append(_stage)
 
+        _temp_kwargs = {"temperature": temperature} if temperature is not None else {}
         for i in range(rounds):
             resp = self._create_with_retry(
                 model=self._model,
@@ -141,6 +143,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 tools=_tools,
                 tool_choice="required" if (force_first_tool and i == 0) else "auto",
                 max_tokens=max_tokens,
+                **_temp_kwargs,
             )
             if resp.usage:
                 total_in += resp.usage.prompt_tokens or 0
@@ -337,6 +340,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages, 800, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim[:40]}",
+            temperature=0,
         )
         try:
             result = parse_json(content)
@@ -389,6 +393,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": [{"type": "text", "text": user_text}]},
             ],
             max_tokens=4096,
+            temperature=0,
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
