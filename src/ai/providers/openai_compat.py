@@ -395,7 +395,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim_text[:40]}",
-            temperature=0,
+            temperature=0, extra_create_kwargs={"reasoning_effort": "low"},
         )
         try:
             result = parse_json(content)
@@ -452,8 +452,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "system", "content": get_final_verdict_prompt(self._tone)},
                 {"role": "user", "content": [{"type": "text", "text": user_text}]},
             ],
-            max_tokens=4096,
+            max_tokens=8192,
             temperature=0,
+            reasoning_effort="low",
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
