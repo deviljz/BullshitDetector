@@ -128,6 +128,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         trace: list | None = None,
         stage_name: str = "tool_loop",
         temperature: float | None = None,
+        extra_create_kwargs: dict | None = None,
     ) -> tuple[str | None, list[dict], dict]:
         """
         Run multi-round tool loop (ReAct pattern).
@@ -136,6 +137,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         max_rounds: overrides MAX_TOOL_ROUNDS for this call.
         query_cache: shared dict for deduplicating web_search across parallel workers.
         trace: if provided, appends a stage dict {name, messages_in, tool_calls, response, tokens}.
+        extra_create_kwargs: extra kwargs forwarded to every _create_with_retry call (e.g. reasoning_effort).
         Returns (content, search_log, token_usage).
         """
         _tools = tools if tools is not None else TOOLS
@@ -150,6 +152,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             trace.append(_stage)
 
         _temp_kwargs = {"temperature": temperature} if temperature is not None else {}
+        if extra_create_kwargs:
+            _temp_kwargs.update(extra_create_kwargs)
         for i in range(rounds):
             resp = self._create_with_retry(
                 model=self._model,
