@@ -2,10 +2,13 @@
 
 import html
 import io as _io
+import logging
 import re
 
 import requests
 from readability import Document
+
+_log = logging.getLogger(__name__)
 
 _BROWSER_HEADERS = {
     "User-Agent": (
@@ -77,15 +80,26 @@ def fetch_toutiao(url: str) -> tuple[str, list]:
         from playwright.sync_api import sync_playwright
         from PIL import Image as PILImage
     except ImportError:
+        _log.warning("fetch_toutiao: playwright 未安装，跳过")
         return url, []
 
     try:
+        _log.info("fetch_toutiao: 开始抓取 %s", url[:80])
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             context = browser.new_context(viewport={"width": 1280, "height": 900})
             page = context.new_page()
             page.goto(url, wait_until="domcontentloaded", timeout=25000)
             page.wait_for_timeout(1500)
+
+            # 点击"展开全文"按钮（头条默认折叠正文）
+            try:
+                btn = page.locator("text=点击展开").first
+                if btn.count() > 0:
+                    btn.click()
+                    page.wait_for_timeout(800)
+            except Exception:
+                pass
 
             # 滚动触发懒加载（快速，每步 150ms）
             for pos in range(0, 12000, 700):
@@ -132,6 +146,8 @@ def fetch_toutiao(url: str) -> tuple[str, list]:
                     continue
 
             browser.close()
+            _log.info("fetch_toutiao: 完成，文字 %d 字，图片 %d 张", len(text), len(images))
             return text or url, images
-    except Exception:
+    except Exception as e:
+        _log.error("fetch_toutiao: 失败 %s", e, exc_info=True)
         return url, []
