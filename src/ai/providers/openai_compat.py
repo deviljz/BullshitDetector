@@ -269,8 +269,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         finally:
             write_entry(_dbg)
 
-    def analyze_article(self, text: str, _write_debug: bool = True, _ext_stages: list | None = None) -> tuple[dict, dict]:
-        _dbg = make_entry("analyze_article", {"text_len": len(text)})
+    def analyze_article(self, text: str, images: list[str] | None = None, _write_debug: bool = True, _ext_stages: list | None = None) -> tuple[dict, dict]:
+        _dbg = make_entry("analyze_article", {"text_len": len(text), "image_count": len(images) if images else 0})
         if _ext_stages is not None:
             _dbg["stages"] = _ext_stages  # merge into caller's stages list
         try:
@@ -279,9 +279,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 update_stage("AI 分析中")
             except Exception:
                 pass
+            user_text = f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"
+            user_content = self._image_content(images, user_text) if images else [{"type": "text", "text": user_text}]
             messages = [
                 {"role": "system", "content": get_article_prompt(self._tone)},
-                {"role": "user", "content": [{"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"}]},
+                {"role": "user", "content": user_content},
             ]
             content, search_log, raw_tokens = self._tool_loop(
                 messages, 4096, _ANALYZE_ARTICLE_RETRY_PROMPT, _analyze_schema_ok,
@@ -500,7 +502,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 _dbg["path"] = "classic_fallback"
                 # Pass _dbg["stages"] so analyze_article appends its stages there;
                 # disable its own write_entry — staged finally will write one unified entry
-                result, token_dict = self.analyze_article(text, _write_debug=False, _ext_stages=_dbg["stages"])
+                result, token_dict = self.analyze_article(text, images=images, _write_debug=False, _ext_stages=_dbg["stages"])
                 result["_path"] = "classic_fallback"
                 set_result(_dbg, result, token_dict, "classic_fallback")
                 return result, token_dict
