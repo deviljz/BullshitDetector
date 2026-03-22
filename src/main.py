@@ -84,6 +84,19 @@ class BullshitDetectorApp:
             self._search_actions[key] = action
         menu.addMenu(search_menu)
 
+        # 鉴屎官模式子菜单
+        analysis_menu = QMenu("鉴屎官模式", menu)
+        self._analysis_actions: dict[str, QAction] = {}
+        current_analysis = load_config().get("analysis_mode", "classic")
+        for key, label in (("classic", "经典（快速）"), ("staged", "分阶段（更准确）")):
+            action = QAction(label, analysis_menu)
+            action.setCheckable(True)
+            action.setChecked(key == current_analysis)
+            action.triggered.connect(lambda checked, k=key: self._set_analysis_mode(k))
+            analysis_menu.addAction(action)
+            self._analysis_actions[key] = action
+        menu.addMenu(analysis_menu)
+
         # 回复风格子菜单
         tone_menu = QMenu("回复风格", menu)
         self._tone_actions: dict[str, QAction] = {}
@@ -120,6 +133,13 @@ class BullshitDetectorApp:
         cfg["search_provider"] = key
         save_config(cfg)
         for k, action in self._search_actions.items():
+            action.setChecked(k == key)
+
+    def _set_analysis_mode(self, key: str):
+        cfg = load_config()
+        cfg["analysis_mode"] = key
+        save_config(cfg)
+        for k, action in self._analysis_actions.items():
             action.setChecked(k == key)
 
     def _set_tone(self, tone_key: str):

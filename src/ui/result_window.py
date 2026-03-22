@@ -245,7 +245,9 @@ class ResultWindow(QWidget):
         )
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating)  # 不抢焦点，减少 DWM 级联重绘
         self.setWindowTitle("")
+        self.setWindowOpacity(0.0)  # opacity=0 必须在 winId() 前，确保 HWND 创建时 DWM 就拿到透明状态
         # 提前创建 HWND，避免 Windows DWM 在透明设置前闪白色原生窗口
         self.winId()
         screen = QApplication.primaryScreen()
@@ -256,7 +258,6 @@ class ResultWindow(QWidget):
             self.resize(w, h)
         self.setMinimumWidth(480)
         self.setMinimumHeight(360)
-        self.setWindowOpacity(0.0)  # show() 前不可见，showEvent 再设为 1
 
     def _make_labels_selectable(self):
         """让所有 QLabel 文字可鼠标选中复制。"""
