@@ -368,15 +368,20 @@ def get_claim_extract_prompt() -> str:
     """分阶段鉴定 Stage 1：从文章提取可核查声明。"""
     return f"""今天的日期是 {_current_date}。
 
-从用户提供的文章中提取 1-4 条核心的、可通过外部证据核查的事实性声明。
+【任务】从文章中提取 1-4 条可通过外部搜索核查的事实性声明。
 
-要求：
-- 只提取客观事实（数据、人名、时间、事件结论），过滤主观意见和预测
-- 优先提取最重要、最容易出现造假的声明
-- 若文章含图片，同时提取图片中可核查的关键事实（如照片人物身份）
-- 每条声明保持简洁（一句话）
+【规则】
+- 只提取客观事实（数据/人名/事件结论），过滤主观意见
+- **财务/商业数据必须提取**（销量/票房/收入/回本周期），这类最容易夸大
+- **标题核心结论必须提取**（如"两天回本""330万份"）
+- 每条声明一句话，简洁
 
-以 JSON 格式输出：{{"claims": ["声明1", "声明2", ...]}}"""
+【输出格式】只输出以下 JSON，不输出任何其他内容：
+{{"claims": ["声明1", "声明2", "声明3"]}}
+
+【示例】
+输入：首月销量破330万，两天回本，GDC分享获好评
+输出：{{"claims": ["首月销量突破330万份", "上线两天收回全部开发成本", "GDC 2026有相关演讲"]}}"""
 
 
 def get_claim_verify_prompt() -> str:
@@ -394,6 +399,10 @@ def get_claim_verify_prompt() -> str:
 - 找到来源但数据明显矛盾 → verdict = "✗ 伪造"
 - 多次搜索无结果，且数值在行业合理范围内 → verdict = "? 无法核实"（禁止直接判伪造）
 - 措辞雷同+集中发布的多个来源 → 同源转载，只算1个有效信源
+
+## 特殊规则（优先级高于上方判断规则）
+- **回本/利润/财务类声明**（如"N天/周回本""成本已收回"）：即使当事方官方宣布过，也不算独立核实——公司财务数据需要独立第三方（媒体分析/财报）核实才可判"属实"。搜不到独立核实 → verdict = "? 无法核实"。搜到的只是公司自己说的 → verdict = "✓ 官方自述"（注意：这仍然是存疑的声明）。
+- **违反行业常识的财务声明**（如 3A 游戏"两天回本"）：3A 游戏开发成本通常 1-3 亿美元，平台分成+宣发后净收入极低，两天销量几乎不可能覆盖成本——此类声明若无详细财务核算来源，应判 "✗ 伪造"。
 
 ## 输出格式（JSON）
 {{"verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实",
@@ -415,6 +424,86 @@ def get_reflect_prompt() -> str:
 输出 JSON：{"additional_claims": ["追加声明1", ...]}
 若无需追加：{"additional_claims": []}
 追加声明最多2条，不得重复已有声明。"""
+
+
+def get_final_verdict_prompt(tone: str = "toxic") -> str:
+    """分阶段鉴定 Stage 3：基于已完成的声明核查汇总最终裁决（禁止搜索，禁止改动 claim_verification）。"""
+    t = _TONE_CONFIGS.get(tone, _TONE_CONFIGS["toxic"])
+    return f"""{t['persona']}
+
+今天的日期是 {_current_date}。
+
+## 你的角色
+
+声明核查已由独立 Agent 完成，结果在用户消息中。你的唯一任务是：
+
+1. **原样复制** claim_verification 到输出（verdict / note / sources / effective_sources / claim 一字不改）
+2. 基于这些核查结论，填写 header、radar_chart、investigation_report、toxic_review、flaw_list、one_line_summary
+
+**禁止调用任何工具。禁止自行搜索。禁止修改 claim_verification 中任何字段。**
+
+---
+
+## bullshit_index 推导规则（强制执行）
+
+从 claim_verification 的 verdict 字段推导，选最高档：
+
+- 全部 ✓（无 ? 无 ✗）→ 0-30
+- 有 ? 无 ✗ → 31-55
+- 有 1 个 ✗ 伪造 → 56-75
+- 有 2+ 个 ✗ 伪造 → 76-100
+
+**⚠️ 强制下限**：claim_verification 中出现任何「✗ 伪造」，bullshit_index **不得低于 56**。
+
+## risk_level 映射（必须严格遵守）
+
+- 0-30 → "✅ 基本可信"
+- 31-55 → "⚠️ 有所存疑"
+- 56-80 → "🔶 高度警惕"
+- 81-100 → "🚨 极度危险"
+
+---
+
+## 输出格式
+
+最终严格按以下 JSON 格式输出，不输出任何其他内容：
+
+{{
+  "claim_verification": [...从用户消息中原样复制，每个 claim 的所有字段一字不改...],
+  "header": {{
+    "bullshit_index": 按上方规则推导的整数,
+    "truth_label": "生动描述，例如：65% 的硬核技术分享 + 35% 的营销暴论",
+    "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按映射规则填写）",
+    "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
+  }},
+  "radar_chart": {{
+    "logic_consistency": 0-5,
+    "source_authority": 0-5,
+    "agitation_level": 0-5,
+    "search_match": 0-5
+  }},
+  "investigation_report": {{
+    "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他",
+    "source_origin": "文章来源识别",
+    "time_check": "时间线核查",
+    "entity_check": "机构/人名/来源核查",
+    "physics_check": "技术常识核查",
+    "source_independence_note": "信源独立性分析",
+    "hype_check": "夸大检测",
+    "missing_info": "遗漏信息",
+    "intent_check": "意图检测",
+    "title_logic_check": "标题逻辑核查：标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书"
+  }},
+  "toxic_review": "{t_output_review}",
+  "flaw_list": ["破绽1：具体指出哪里夸大/无来源/意图不纯", "破绽2：..."],
+  "one_line_summary": "{t_output_summary}"
+}}
+
+【输出格式强制要求】输出必须是纯净的标准 JSON 格式，绝对不要包含任何 Markdown 代码块标记（如 ```json）。所有字段中的双引号必须使用反斜杠转义（\"），禁止使用未转义的换行符。""".replace(
+        "{t_output_review}", t['output_review']
+    ).replace(
+        "{t_output_summary}", t['output_summary']
+    )
 
 
 def get_summary_prompt() -> str:

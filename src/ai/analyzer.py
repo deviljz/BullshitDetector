@@ -53,11 +53,35 @@ def analyze_text(text: str, session_id: str | None = None) -> dict:
     return result
 
 
+def _enforce_bi_floor(result: dict) -> dict:
+    """Enforce bullshit_index floor based on claim_verification verdicts."""
+    cv = result.get("claim_verification", []) or []
+    fake = sum(1 for c in cv if "\u2717" in c.get("verdict", ""))
+    unverified = any("?" in c.get("verdict", "") for c in cv)
+    hdr = result.get("header")
+    if not isinstance(hdr, dict):
+        return result
+    bi = hdr.get("bullshit_index", 0) or 0
+    if fake >= 2:
+        bi = max(bi, 76)
+    elif fake >= 1:
+        bi = max(bi, 56)
+    elif unverified:
+        bi = max(bi, 31)
+    hdr["bullshit_index"] = bi
+    rl = ("🚨 极度危险" if bi > 80 else
+          "🔶 高度警惕" if bi > 55 else
+          "⚠️ 有所存疑" if bi > 30 else
+          "✅ 基本可信")
+    hdr["risk_level"] = rl
+    return result
+
+
 def analyze_text_staged(text: str, images: list[str] | None = None, session_id: str | None = None) -> dict:
     """分析文章/声明文字的可信度（分阶段多 Agent 路径）。"""
     result, tokens = _load_provider().analyze_article_staged(text, images)
     _record(session_id, "analyze", tokens)
-    return result
+    return _enforce_bi_floor(result)
 
 
 def summarize_screenshot(images: list[str], extra_text: str = "", session_id: str | None = None) -> dict:

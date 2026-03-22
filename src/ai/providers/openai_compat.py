@@ -13,7 +13,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 
@@ -227,25 +227,36 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
     _CLAIM_VERIFY_RETRY = "请根据搜索结果，输出该声明的核查结论 JSON。"
 
-    def _extract_claims(self, text: str, images: list[str] | None = None) -> list[str]:
-        """Stage 1: Extract verifiable claims. Images sent only here."""
+    def _extract_claims(self, text: str, images: list[str] | None = None):
+        """Stage 1: Extract verifiable claims. Images sent only here.
+        Returns list[str] of claims, OR a full result dict if the model did a complete analysis.
+        """
         if images:
-            user_content = self._image_content(images, f"请从以下文章中提取可核查声明：\n\n{text[:6000]}")
+            user_content = self._image_content(images, f"文章内容：\n\n{text[:6000]}")
         else:
-            user_content = [{"type": "text", "text": f"请从以下文章中提取可核查声明：\n\n{text[:6000]}"}]
+            user_content = [{"type": "text", "text": f"文章内容：\n\n{text[:6000]}"}]
         resp = self._create_with_retry(
             model=self._model,
             messages=[
                 {"role": "system", "content": get_claim_extract_prompt()},
                 {"role": "user", "content": user_content},
             ],
-            max_tokens=300,
+            max_tokens=400,
             response_format={"type": "json_object"},
         )
+        raw = resp.choices[0].message.content or ""
         try:
-            data = json.loads(resp.choices[0].message.content)
-            claims = data.get("claims", []) if isinstance(data, dict) else data
-            return [str(c) for c in claims[:4]] if isinstance(claims, list) else []
+            data = parse_json(raw)
+            if isinstance(data, dict):
+                # Model returned a full analysis — use it directly
+                if "header" in data or "claim_verification" in data:
+                    return data  # signal to caller: skip stages 2/3
+                claims = data.get("claims", [])
+            elif isinstance(data, list):
+                claims = data
+            else:
+                claims = []
+            return [str(c) for c in claims[:4] if c]
         except Exception:
             return []
 
@@ -283,7 +294,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             response_format={"type": "json_object"},
         )
         try:
-            data = json.loads(resp.choices[0].message.content)
+            data = parse_json(resp.choices[0].message.content)
             return data.get("additional_claims", [])[:2]
         except Exception:
             return []
@@ -291,14 +302,13 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def _final_verdict(self, article_text: str, claim_results: list[dict]) -> tuple[dict, dict]:
         """Stage 3: Final verdict using pre-computed claim results, no tools, no images."""
         clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
-        system = (get_article_prompt(self._tone) +
-                  "\n\n【重要】claim_verification 已在用户消息中提供，直接采用，禁止再调用 web_search。")
-        user_text = (f"请鉴定以下文章/声明的可信度：\n\n{article_text[:8000]}\n\n"
-                     f"---\n已完成的逐条声明核查（直接使用）：\n{json.dumps(clean, ensure_ascii=False)}")
+        user_text = (f"文章内容：\n\n{article_text[:8000]}\n\n"
+                     f"---\n【已完成的逐条声明核查，原样复制到输出的 claim_verification，禁止修改】：\n"
+                     f"{json.dumps(clean, ensure_ascii=False)}")
         resp = self._create_with_retry(
             model=self._model,
             messages=[
-                {"role": "system", "content": system},
+                {"role": "system", "content": get_final_verdict_prompt(self._tone)},
                 {"role": "user", "content": [{"type": "text", "text": user_text}]},
             ],
             max_tokens=4096,
@@ -308,13 +318,45 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         tout = resp.usage.completion_tokens if resp.usage else 0
         return parse_json(resp.choices[0].message.content), {"input_tokens": tin, "output_tokens": tout}
 
+    def _apply_floor(self, result: dict) -> dict:
+        """Enforce bullshit_index floor based on claim_verification verdicts."""
+        _final_cv = result.get("claim_verification", []) or []
+        _fake_count = sum(1 for r in _final_cv if "\u2717" in r.get("verdict", ""))
+        _has_unverified = any("?" in r.get("verdict", "") for r in _final_cv)
+        _header = result.setdefault("header", {})
+        _bi = _header.get("bullshit_index", 0)
+        if _fake_count >= 2:
+            _bi = max(_bi, 76)
+        elif _fake_count == 1:
+            _bi = max(_bi, 56)
+        elif _has_unverified:
+            _bi = max(_bi, 31)
+        _header["bullshit_index"] = _bi
+        _risk_map = [(80, "🚨 极度危险"), (55, "🔶 高度警惕"), (30, "⚠️ 有所存疑"), (-1, "✅ 基本可信")]
+        for threshold, label in _risk_map:
+            if _bi > threshold:
+                _header["risk_level"] = label
+                break
+        return result
+
     def analyze_article_staged(self, text: str, images: list[str] | None = None) -> tuple[dict, dict]:
         """Multi-stage article analysis: isolated per-claim verification + reflection."""
         try:
             total = {"input_tokens": 0, "output_tokens": 0}
 
             # Stage 1: claim extraction (images sent only here)
+            # Returns list[str] of claims, OR a full result dict if model did complete analysis
             claims = self._extract_claims(text, images)
+
+            if isinstance(claims, dict):
+                # Model already did a full analysis in Stage 1 — normalize, apply floor, return
+                result = normalize_result(claims)
+                result = self._apply_floor(result)
+                result.setdefault("_search_log", [])
+                result["_token_usage"] = total
+                token_dict = {"model": self._model, "input": 0, "output": 0}
+                return normalize_result(result), token_dict
+
             if not claims:
                 return self.analyze_article(text)  # fallback to classic
 
@@ -343,6 +385,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             total["output_tokens"] += vtokens["output_tokens"]
 
             result = normalize_result(result)
+            result = self._apply_floor(result)
+
             all_logs = []
             for r in claim_results:
                 all_logs.extend(r.pop("_search_log", []))
