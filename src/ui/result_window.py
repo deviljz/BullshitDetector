@@ -1787,21 +1787,25 @@ class ResultWindow(QWidget):
         from screenshot.capture import image_to_base64
         b64_list = [image_to_base64(img) for img in images]
 
+        extra_text = self._result.get("_extra_text", "")
+
         def _call():
             import uuid
             session_id = str(uuid.uuid4())
             if mode == "summary":
                 from ai.analyzer import summarize_screenshot
-                result = summarize_screenshot(b64_list, session_id=session_id)
+                result = summarize_screenshot(b64_list, extra_text, session_id=session_id)
             elif mode == "explain":
                 from ai.analyzer import explain_screenshot
-                result = explain_screenshot(b64_list, session_id=session_id)
+                result = explain_screenshot(b64_list, extra_text, session_id=session_id)
             elif mode == "source":
                 from ai.analyzer import source_find_screenshot
-                result = source_find_screenshot(b64_list, session_id=session_id)
+                result = source_find_screenshot(b64_list, extra_text, session_id=session_id)
             else:
                 from ai.analyzer import analyze_screenshot
-                result = analyze_screenshot(b64_list, session_id=session_id)
+                result = analyze_screenshot(b64_list, extra_text, session_id=session_id)
+            if extra_text:
+                result["_extra_text"] = extra_text  # 保留供再次切换模式
             self._rerun_done.emit(result)
 
         threading.Thread(target=_call, daemon=True).start()

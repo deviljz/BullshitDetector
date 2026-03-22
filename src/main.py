@@ -220,14 +220,21 @@ class BullshitDetectorApp:
             from ai.analyzer import analyze_screenshot, summarize_screenshot, explain_screenshot, source_find_screenshot
             b64_list = [image_to_base64(img) for img in images]
             extra = dlg.get_text()  # 可能为空，有文字则一起发给 AI
+            def _make_img_fn(fn_inner, _extra=extra):
+                def _wrapped():
+                    result = fn_inner()
+                    if _extra:
+                        result["_extra_text"] = _extra  # 供结果窗口切换模式时复用
+                    return result
+                return _wrapped
             if mode == "summarize":
-                fn = lambda: summarize_screenshot(b64_list, extra, session_id=session_id)
+                fn = _make_img_fn(lambda: summarize_screenshot(b64_list, extra, session_id=session_id))
             elif mode == "explain":
-                fn = lambda: explain_screenshot(b64_list, extra, session_id=session_id)
+                fn = _make_img_fn(lambda: explain_screenshot(b64_list, extra, session_id=session_id))
             elif mode == "source":
-                fn = lambda: source_find_screenshot(b64_list, extra, session_id=session_id)
+                fn = _make_img_fn(lambda: source_find_screenshot(b64_list, extra, session_id=session_id))
             else:
-                fn = lambda: analyze_screenshot(b64_list, extra, session_id=session_id)
+                fn = _make_img_fn(lambda: analyze_screenshot(b64_list, extra, session_id=session_id))
         else:
             images = None
             text = dlg.get_text()
@@ -335,7 +342,10 @@ class BullshitDetectorApp:
             QSystemTrayIcon.MessageIcon.Information,
             3000,
         )
-        return self.app.exec()
+        self.app.aboutToQuit.connect(lambda: logging.info("BullshitDetector 退出（app.aboutToQuit）"))
+        exit_code = self.app.exec()
+        logging.info("BullshitDetector app.exec() 返回，exit_code=%d", exit_code)
+        return exit_code
 
 
 def _setup_logging():
@@ -346,7 +356,7 @@ def _setup_logging():
     log_dir.mkdir(exist_ok=True)
     log_file = log_dir / "bullshit.log"
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         handlers=[
             logging.FileHandler(log_file, encoding="utf-8"),
