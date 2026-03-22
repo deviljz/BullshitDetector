@@ -464,7 +464,17 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 update_stage("提取关键声明")
             except Exception:
                 pass
-            claims, s1_tokens = self._extract_claims(text, images, trace=_dbg["stages"])
+            claims = []
+            s1_tokens = {"input_tokens": 0, "output_tokens": 0}
+            for _s1_try in range(3):
+                _claims_attempt, _s1_tok = self._extract_claims(
+                    text, images, trace=_dbg["stages"] if _s1_try == 0 else None
+                )
+                s1_tokens["input_tokens"] += _s1_tok["input_tokens"]
+                s1_tokens["output_tokens"] += _s1_tok["output_tokens"]
+                if _claims_attempt:
+                    claims = _claims_attempt
+                    break
             total["input_tokens"] += s1_tokens["input_tokens"]
             total["output_tokens"] += s1_tokens["output_tokens"]
 
