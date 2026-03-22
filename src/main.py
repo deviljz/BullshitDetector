@@ -14,7 +14,7 @@ from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY, TEXT_HOTKEY
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
-from ai.analyzer import analyze_screenshot, analyze_text
+from ai.analyzer import analyze_screenshot, analyze_text, analyze_text_staged
 from ui.unified_input_dialog import UnifiedInputDialog
 from ui.result_window import ResultWindow
 from ui.loading_overlay import LoadingOverlay
@@ -251,7 +251,11 @@ class BullshitDetectorApp:
                 from ai.analyzer import source_find_text
                 fn = lambda: source_find_text(text, session_id=session_id)
             else:
-                fn = lambda: analyze_text(text, session_id=session_id)
+                _use_staged = load_config().get("analysis_mode") == "staged"
+                if _use_staged:
+                    fn = lambda: analyze_text_staged(text, images or None, session_id=session_id)
+                else:
+                    fn = lambda: analyze_text(text, session_id=session_id)
         threading.Thread(
             target=lambda: self.signals.show_result.emit(fn(), None, loading, images),
             daemon=True,

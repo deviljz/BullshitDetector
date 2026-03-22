@@ -47,8 +47,15 @@ def analyze_screenshot(images: list[str], extra_text: str = "", session_id: str 
 
 
 def analyze_text(text: str, session_id: str | None = None) -> dict:
-    """分析文章/声明文字的可信度。"""
+    """分析文章/声明文字的可信度（经典单路径）。"""
     result, tokens = _load_provider().analyze_article(text)
+    _record(session_id, "analyze", tokens)
+    return result
+
+
+def analyze_text_staged(text: str, images: list[str] | None = None, session_id: str | None = None) -> dict:
+    """分析文章/声明文字的可信度（分阶段多 Agent 路径）。"""
+    result, tokens = _load_provider().analyze_article_staged(text, images)
     _record(session_id, "analyze", tokens)
     return result
 

@@ -13,7 +13,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 
@@ -33,7 +33,8 @@ _ANALYZE_ARTICLE_RETRY_PROMPT = (
     "1. investigation_report 必须包含 content_nature 字段（内容性质：自媒体公众号/科技媒体/官方新闻等）\n"
     "2. claim_verification 必须包含至少1条声明核查，每条含 claim / verdict / effective_sources / best_source_type / note / sources\n"
     "3. verdict 只能填：✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实\n"
-    "4. sources：填入支持该判断的参考链接（最多3条，格式：[{\"url\": \"https://...\", \"title\": \"页面标题\"}]）；搜不到填 []"
+    "4. sources：填入支持该判断的参考链接（最多3条，格式：[{\"url\": \"https://...\", \"title\": \"页面标题\"}]）；搜不到填 []\n"
+    "5. investigation_report.title_logic_check：分析标题是否存在因果谬误（相关≠因果）或用无关数据为核心论点背书"
 )
 _SOURCE_RETRY_PROMPT = "请根据以上搜索结果，严格按照系统提示定义的 JSON 格式输出最终识别结果。"
 
@@ -74,7 +75,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         def _run(tc):
             fn = tc.function.name
             fa = json.loads(tc.function.arguments)
-            print(f"  🔍 [{self._model}] 调用工具: {fn}({fa})")
+            try:
+                print(f"  🔍 [{self._model}] 调用工具: {fn}({fa})")
+            except UnicodeEncodeError:
+                print(f"  [search] [{self._model}] {fn}({fa})")
             return tc, fn, fa, execute_tool(fn, fa)
         with ThreadPoolExecutor(max_workers=len(tool_calls)) as ex:
             return list(ex.map(_run, tool_calls))
@@ -215,6 +219,136 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             result["_search_log"] = search_log
             result["_token_usage"] = raw_tokens
             token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
+            return result, token_dict
+        except Exception as e:
+            return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
+
+    # ── 分阶段鉴定（staged analysis） ─────────────────────────────────────────
+
+    _CLAIM_VERIFY_RETRY = "请根据搜索结果，输出该声明的核查结论 JSON。"
+
+    def _extract_claims(self, text: str, images: list[str] | None = None) -> list[str]:
+        """Stage 1: Extract verifiable claims. Images sent only here."""
+        if images:
+            user_content = self._image_content(images, f"请从以下文章中提取可核查声明：\n\n{text[:6000]}")
+        else:
+            user_content = [{"type": "text", "text": f"请从以下文章中提取可核查声明：\n\n{text[:6000]}"}]
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_claim_extract_prompt()},
+                {"role": "user", "content": user_content},
+            ],
+            max_tokens=300,
+            response_format={"type": "json_object"},
+        )
+        try:
+            data = json.loads(resp.choices[0].message.content)
+            claims = data.get("claims", []) if isinstance(data, dict) else data
+            return [str(c) for c in claims[:4]] if isinstance(claims, list) else []
+        except Exception:
+            return []
+
+    def _verify_claim(self, claim: str, article_text: str) -> dict:
+        """Stage 2: Independent verification of one claim (fresh context, no images)."""
+        messages = [
+            {"role": "system", "content": get_claim_verify_prompt()},
+            {"role": "user", "content": [{"type": "text", "text":
+                f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim}"}]},
+        ]
+        content, search_log, tokens = self._tool_loop(
+            messages, 800, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
+        )
+        try:
+            result = parse_json(content)
+        except Exception:
+            result = {"verdict": "? 无法核实", "effective_sources": 0,
+                      "best_source_type": "none", "note": "核查解析失败", "sources": []}
+        result["claim"] = claim
+        result["_search_log"] = search_log
+        result["_tokens"] = tokens
+        return result
+
+    def _reflect(self, article_text: str, claim_results: list[dict]) -> list[str]:
+        """Stage 2.5: Decide if additional claims need investigation."""
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_reflect_prompt()},
+                {"role": "user", "content": [{"type": "text", "text":
+                    f"文章（摘要）：{article_text[:600]}\n\n已核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+            ],
+            max_tokens=200,
+            response_format={"type": "json_object"},
+        )
+        try:
+            data = json.loads(resp.choices[0].message.content)
+            return data.get("additional_claims", [])[:2]
+        except Exception:
+            return []
+
+    def _final_verdict(self, article_text: str, claim_results: list[dict]) -> tuple[dict, dict]:
+        """Stage 3: Final verdict using pre-computed claim results, no tools, no images."""
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        system = (get_article_prompt(self._tone) +
+                  "\n\n【重要】claim_verification 已在用户消息中提供，直接采用，禁止再调用 web_search。")
+        user_text = (f"请鉴定以下文章/声明的可信度：\n\n{article_text[:8000]}\n\n"
+                     f"---\n已完成的逐条声明核查（直接使用）：\n{json.dumps(clean, ensure_ascii=False)}")
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": system},
+                {"role": "user", "content": [{"type": "text", "text": user_text}]},
+            ],
+            max_tokens=4096,
+            response_format={"type": "json_object"},
+        )
+        tin = resp.usage.prompt_tokens if resp.usage else 0
+        tout = resp.usage.completion_tokens if resp.usage else 0
+        return parse_json(resp.choices[0].message.content), {"input_tokens": tin, "output_tokens": tout}
+
+    def analyze_article_staged(self, text: str, images: list[str] | None = None) -> tuple[dict, dict]:
+        """Multi-stage article analysis: isolated per-claim verification + reflection."""
+        try:
+            total = {"input_tokens": 0, "output_tokens": 0}
+
+            # Stage 1: claim extraction (images sent only here)
+            claims = self._extract_claims(text, images)
+            if not claims:
+                return self.analyze_article(text)  # fallback to classic
+
+            # Stage 2: parallel independent verification (max 2 workers for free-tier RPM)
+            with ThreadPoolExecutor(max_workers=min(len(claims), 2)) as ex:
+                claim_results = list(ex.map(lambda c: self._verify_claim(c, text), claims))
+            for r in claim_results:
+                t = r.pop("_tokens", {})
+                total["input_tokens"] += t.get("input_tokens", 0)
+                total["output_tokens"] += t.get("output_tokens", 0)
+
+            # Stage 2.5: reflection — one optional extra round
+            extra = self._reflect(text, claim_results)
+            if extra:
+                with ThreadPoolExecutor(max_workers=min(len(extra), 2)) as ex:
+                    extra_results = list(ex.map(lambda c: self._verify_claim(c, text), extra))
+                for r in extra_results:
+                    t = r.pop("_tokens", {})
+                    total["input_tokens"] += t.get("input_tokens", 0)
+                    total["output_tokens"] += t.get("output_tokens", 0)
+                claim_results.extend(extra_results)
+
+            # Stage 3: final verdict (no tools, no images)
+            result, vtokens = self._final_verdict(text, claim_results)
+            total["input_tokens"] += vtokens["input_tokens"]
+            total["output_tokens"] += vtokens["output_tokens"]
+
+            result = normalize_result(result)
+            all_logs = []
+            for r in claim_results:
+                all_logs.extend(r.pop("_search_log", []))
+            result["_search_log"] = all_logs
+            result["_token_usage"] = total
+            token_dict = {"model": self._model, "input": total["input_tokens"], "output": total["output_tokens"]}
             return result, token_dict
         except Exception as e:
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
