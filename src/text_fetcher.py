@@ -107,28 +107,36 @@ def fetch_toutiao(url: str) -> tuple[str, list]:
                 page.wait_for_timeout(150)
             page.wait_for_timeout(800)
 
-            # 提取正文文字（仅 .wtt-content 容器）
-            raw_text = page.evaluate("""() => {
-                const el = document.querySelector('.wtt-content');
-                return el ? el.innerText : '';
-            }""") or ""
+            # 支持两种头条文章格式：/w/ 用 .wtt-content，/article/ 用 .tt-article-content
+            container_js = """() => {
+                for (const sel of ['.wtt-content', '.tt-article-content', '.syl-article-base']) {
+                    const el = document.querySelector(sel);
+                    if (el) return {sel, text: el.innerText,
+                        srcs: Array.from(el.querySelectorAll('img'))
+                            .map(img => img.src || img.dataset.src || '')
+                            .filter(s => s.startsWith('http'))};
+                }
+                return null;
+            }"""
+            container = page.evaluate(container_js)
+            if not container:
+                _log.warning("fetch_toutiao: 未找到正文容器")
+                browser.close()
+                return url, []
+
+            _log.info("fetch_toutiao: 使用容器 %s，图片 %d 张", container["sel"], len(container["srcs"]))
+            raw_text = container["text"] or ""
             text = re.sub(r"[ \t]+", " ", raw_text)
             text = re.sub(r"\n{3,}", "\n\n", text).strip()
-            if len(text) > 3000:
-                text = text[:3000] + "…（已截断）"
+            if len(text) > 8000:
+                text = text[:8000] + "…（已截断）"
 
-            # 提取正文图片（仅 .wtt-content 容器，排除头像）
-            srcs = page.evaluate("""() => {
-                const container = document.querySelector('.wtt-content');
-                if (!container) return [];
-                return Array.from(container.querySelectorAll('img'))
-                    .map(img => img.src || img.dataset.src || '')
-                    .filter(src => src.startsWith('http'));
-            }""") or []
-            srcs = [s for s in srcs if "user-avatar" not in s and "avatar" not in s]
+            srcs = [s for s in container["srcs"] if "user-avatar" not in s and "avatar" not in s]
 
+            # 文字丰富时少发图（正文是主角）；图片为主时多发图
+            max_imgs = 3 if len(text) > 2000 else 6
             images = []
-            for src in srcs[:12]:  # 最多尝试 12 张
+            for src in srcs[:12]:
                 try:
                     resp = context.request.get(src, timeout=10000)
                     if not resp.ok:
@@ -140,7 +148,7 @@ def fetch_toutiao(url: str) -> tuple[str, list]:
                     if img.width < 200 or img.height < 100:  # 跳过过窄/矮的图
                         continue
                     images.append(img)
-                    if len(images) >= 6:  # 最多发 6 张给 AI
+                    if len(images) >= max_imgs:
                         break
                 except Exception:
                     continue
