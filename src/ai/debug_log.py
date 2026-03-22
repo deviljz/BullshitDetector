@@ -1,47 +1,16 @@
 """
-debug_log.py — 全链路调试日志
+debug_log.py — 全链路调试日志（精简版）
 
-每次 AI 调用（鉴定/解释/总结/求出处）写一条 JSONL 到 logs/debug.jsonl，
-记录：发送的 prompt、每轮工具调用+搜索结果、模型返回、token 消耗。
-用于事后复盘 bug，不影响主流程。
+每次 AI 调用写一条 JSONL 到 logs/debug.jsonl。
+每条记录包含：call_id、mode、path、各阶段搜索query+结果摘要+模型回复摘要、token 消耗。
+不存完整 system prompt 和 user 消息体，体积小，可用 call_id 与历史记录对应。
 """
 
 import json
 import os
+import secrets
 from datetime import datetime, timezone
 from pathlib import Path
-
-
-def _sanitize(obj, _depth=0):
-    """
-    递归处理日志对象：
-    - image_url 的 data:image base64 替换为占位符
-    - 超长字符串截断
-    """
-    if _depth > 8:
-        return "..."
-    if isinstance(obj, str):
-        if obj.startswith("data:image") and len(obj) > 200:
-            return f"[IMAGE_B64 ~{len(obj)} chars]"
-        if len(obj) > 3000:
-            return obj[:3000] + f"...[{len(obj)} total]"
-        return obj
-    if isinstance(obj, list):
-        return [_sanitize(i, _depth + 1) for i in obj]
-    if isinstance(obj, dict):
-        out = {}
-        for k, v in obj.items():
-            if k == "url" and isinstance(v, str) and v.startswith("data:image"):
-                out[k] = f"[IMAGE_B64 ~{len(v)} chars]"
-            else:
-                out[k] = _sanitize(v, _depth + 1)
-        return out
-    return obj
-
-
-def sanitize_messages(messages: list) -> list:
-    """返回消息列表的安全副本（替换 base64 图片）。"""
-    return _sanitize(messages)
 
 
 def _get_log_path() -> str:
@@ -55,9 +24,47 @@ def _get_log_path() -> str:
     return os.path.join(log_dir, "debug.jsonl")
 
 
+def sanitize_messages(messages: list) -> list:
+    """替换 base64 图片为占位符（供外部调用，内部已不存完整 messages）。"""
+    out = []
+    for msg in messages:
+        if not isinstance(msg, dict):
+            out.append(msg)
+            continue
+        content = msg.get("content")
+        if isinstance(content, list):
+            parts = []
+            for p in content:
+                if isinstance(p, dict) and p.get("type") == "image_url":
+                    url = p.get("image_url", {}).get("url", "")
+                    parts.append({"type": "image_url", "size": len(url)})
+                else:
+                    parts.append(p)
+            out.append({**msg, "content": parts})
+        else:
+            out.append(msg)
+    return out
+
+
+def _user_hint(messages: list) -> str:
+    """从 messages 中提取第一条 user 消息的文字摘要（前 150 字）。"""
+    for msg in messages:
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        return part.get("text", "")[:150]
+            elif isinstance(content, str):
+                return content[:150]
+    return ""
+
+
 def make_entry(mode: str, input_info: dict) -> dict:
-    """创建一条空的调试日志 entry。"""
+    """创建一条调试日志 entry，含唯一 call_id。"""
+    call_id = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
     return {
+        "call_id": call_id,
         "ts": datetime.now(timezone.utc).isoformat(),
         "mode": mode,
         "path": "unknown",
@@ -68,14 +75,27 @@ def make_entry(mode: str, input_info: dict) -> dict:
     }
 
 
+def make_stage(name: str, messages: list | None = None) -> dict:
+    """创建精简 stage dict，可选从 messages 提取 user_hint。"""
+    stage: dict = {"name": name, "tool_calls": [], "response": "", "tokens": {}}
+    if messages:
+        hint = _user_hint(messages)
+        if hint:
+            stage["user_hint"] = hint
+    return stage
+
+
 def set_result(entry: dict, result: dict, token_dict: dict, path: str = ""):
-    """将最终结果摘要写入 entry。支持所有模式（analyze/summary/explain/source）。"""
+    """将最终结果摘要写入 entry，同时把 call_id 写回 result。"""
     if path:
         entry["path"] = path
     entry["total_tokens"] = {
         "input": token_dict.get("input", 0),
         "output": token_dict.get("output", 0),
     }
+    # 把 call_id 写进 result，供 history 存储做关联
+    result["_call_id"] = entry["call_id"]
+
     hdr = result.get("header") or {}
     cv = result.get("claim_verification") or []
     summary: dict = {"mode": result.get("_mode")}
@@ -88,7 +108,6 @@ def set_result(entry: dict, result: dict, token_dict: dict, path: str = ""):
     if cv:
         summary["claim_count"] = len(cv)
         summary["fake_count"] = sum(1 for c in cv if "\u2717" in c.get("verdict", ""))
-    # 其他模式字段
     for key in ("headline", "title", "subject", "found", "confidence"):
         if result.get(key) is not None:
             summary[key] = result[key]

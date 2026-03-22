@@ -16,7 +16,7 @@ from ai.providers.base import BaseLLMProvider
 from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
-from ai.debug_log import make_entry, set_result, write_entry, sanitize_messages
+from ai.debug_log import make_entry, make_stage, set_result, write_entry, sanitize_messages
 
 MAX_TOOL_ROUNDS = 8  # 并行调用后每轮可发多个请求，8轮足够复杂案例
 
@@ -131,13 +131,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
         _stage: dict | None = None
         if trace is not None:
-            _stage = {
-                "name": stage_name,
-                "messages_in": sanitize_messages(list(messages)),
-                "tool_calls": [],
-                "response": None,
-                "tokens": {},
-            }
+            _stage = make_stage(stage_name, messages)
             trace.append(_stage)
 
         for i in range(rounds):
@@ -160,7 +154,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls, query_cache):
                 search_log.append({"tool": fn, "query": fa.get("query", ""), "result_preview": result[:200]})
                 if _stage is not None:
-                    _stage["tool_calls"].append({"fn": fn, "args": fa, "result": result[:1000]})
+                    _stage["tool_calls"].append({"fn": fn, "query": fa.get("query", str(fa)[:80]), "result": result[:200]})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
         content = choice.message.content if choice and choice.message else None
@@ -195,7 +189,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             content = resp.choices[0].message.content
 
         if _stage is not None:
-            _stage["response"] = (content or "")[:2000]
+            _stage["response"] = (content or "")[:500]
             _stage["tokens"] = {"input": total_in, "output": total_out}
 
         return content, search_log, {"input_tokens": total_in, "output_tokens": total_out}
@@ -222,9 +216,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             if trace is not None:
                 trace.append({
                     "name": stage_name,
-                    "system": system_prompt[:800],
-                    "user": sanitize_messages(content) if isinstance(content, list) else content[:800],
-                    "response": raw[:2000],
+                    "response": raw[:500],
                     "tokens": {"input": tin, "output": tout},
                 })
             result = parse_json(raw)
@@ -314,9 +306,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if trace is not None:
             trace.append({
                 "name": "extract_claims",
-                "system": get_claim_extract_prompt()[:600],
-                "user": sanitize_messages(user_content),
-                "response": raw[:2000],
+                "response": raw[:500],
                 "tokens": {"input": tin, "output": tout},
             })
         try:
@@ -378,7 +368,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if trace is not None:
             trace.append({
                 "name": "reflect",
-                "response": raw[:1000],
+                "response": raw[:300],
                 "tokens": {"input": tin, "output": tout},
             })
         try:
@@ -409,7 +399,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         if trace is not None:
             trace.append({
                 "name": "final_verdict",
-                "response": raw[:3000],
+                "response": raw[:500],
                 "tokens": {"input": tin, "output": tout},
             })
         return parse_json(raw), {"input_tokens": tin, "output_tokens": tout}
