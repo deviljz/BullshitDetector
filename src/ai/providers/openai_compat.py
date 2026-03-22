@@ -467,8 +467,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             claims = []
             s1_tokens = {"input_tokens": 0, "output_tokens": 0}
             for _s1_try in range(3):
+                # Retry degradation: try0=full, try1=no images, try2=no images+shorter text
+                _img = images if _s1_try == 0 else None
+                _txt = text if _s1_try < 2 else text[:3000]
                 _claims_attempt, _s1_tok = self._extract_claims(
-                    text, images, trace=_dbg["stages"] if _s1_try == 0 else None
+                    _txt, _img, trace=_dbg["stages"] if _s1_try == 0 else None
                 )
                 s1_tokens["input_tokens"] += _s1_tok["input_tokens"]
                 s1_tokens["output_tokens"] += _s1_tok["output_tokens"]
