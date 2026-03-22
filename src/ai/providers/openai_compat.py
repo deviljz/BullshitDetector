@@ -79,7 +79,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             try:
                 print(f"  🔍 [{self._model}] 调用工具: {fn}({fa})")
             except UnicodeEncodeError:
-                print(f"  [search] [{self._model}] {fn}({fa})")
+                safe = f"  [search] [{self._model}] {fn}({fa})".encode("gbk", errors="replace").decode("gbk")
+                print(safe)
             if fn == "web_search" and query_cache is not None:
                 q = fa.get("query", "")
                 if q in query_cache:
@@ -312,6 +313,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 "tokens": {"input": tin, "output": tout},
             })
         try:
+            if len(raw.strip()) < 20:  # truncated / empty response from API
+                return [], tokens
             data = parse_json(raw)
             if isinstance(data, dict):
                 # Only treat as full analysis if it has meaningful content (not a repaired empty shell)
@@ -324,22 +327,36 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 claims = data
             else:
                 claims = []
-            return [str(c) for c in claims[:4] if c], tokens
+            normalized = []
+            for c in claims[:5]:
+                if isinstance(c, dict) and c.get("text"):
+                    normalized.append({"text": str(c["text"]), "type": c.get("type", "fact")})
+                elif isinstance(c, str) and c:
+                    normalized.append({"text": c, "type": "fact"})
+            return normalized, tokens
         except Exception:
             return [], tokens
 
-    def _verify_claim(self, claim: str, article_text: str, query_cache: dict | None = None,
+    def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
                       trace: list | None = None) -> dict:
         """Stage 2: Independent verification of one claim (fresh context, no images)."""
+        if isinstance(claim, dict):
+            claim_text = claim.get("text", "")
+            claim_type = claim.get("type", "fact")
+        else:
+            claim_text = claim
+            claim_type = "fact"
+        user_text = f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim_text}"
+        if claim_type == "narrative":
+            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点），请搜索对比数据（如与前作/同类作品同期数据对比）来验证或推翻。"
         messages = [
             {"role": "system", "content": get_claim_verify_prompt()},
-            {"role": "user", "content": [{"type": "text", "text":
-                f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim}"}]},
+            {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
         content, search_log, tokens = self._tool_loop(
             messages, 800, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
-            trace=trace, stage_name=f"verify: {claim[:40]}",
+            trace=trace, stage_name=f"verify: {claim_text[:40]}",
             temperature=0,
         )
         try:
@@ -347,7 +364,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         except Exception:
             result = {"verdict": "? 无法核实", "effective_sources": 0,
                       "best_source_type": "none", "note": "核查解析失败", "sources": []}
-        result["claim"] = claim
+        result["claim"] = claim_text
+        result["claim_type"] = claim_type
         result["_search_log"] = search_log
         result["_tokens"] = tokens
         return result
@@ -362,7 +380,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": [{"type": "text", "text":
                     f"文章（摘要）：{article_text[:600]}\n\n已核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
             ],
-            max_tokens=300,
+            max_tokens=600,
         )
         raw = resp.choices[0].message.content or ""
         tin = resp.usage.prompt_tokens if resp.usage else 0
@@ -457,6 +475,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             # Stage 2.5: reflection
             extra = self._reflect(text, claim_results, trace=_dbg["stages"])
             if extra:
+                # Deduplicate against already-verified claims
+                existing_texts = {r.get("claim", "") for r in claim_results}
+                extra = [c for c in extra if (c if isinstance(c, str) else c.get("text", "")) not in existing_texts]
+            if extra:
                 with ThreadPoolExecutor(max_workers=min(len(extra), max_workers)) as ex:
                     extra_results = list(ex.map(
                         lambda c: self._verify_claim(c, text, query_cache, trace=_dbg["stages"]), extra
@@ -468,14 +490,37 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 claim_results.extend(extra_results)
 
             # Stage 3: final verdict (no tools, no images)
-            result_raw, vtokens = self._final_verdict(text, claim_results, trace=_dbg["stages"])
-            total["input_tokens"] += vtokens["input_tokens"]
-            total["output_tokens"] += vtokens["output_tokens"]
-
+            try:
+                result_raw, vtokens = self._final_verdict(text, claim_results, trace=_dbg["stages"])
+                total["input_tokens"] += vtokens["input_tokens"]
+                total["output_tokens"] += vtokens["output_tokens"]
+                # Filter malformed items (error results Stage 3 expanded into full header/radar_chart objects)
+                if isinstance(result_raw, dict):
+                    cvs = result_raw.get("claim_verification", [])
+                    result_raw["claim_verification"] = [
+                        cv for cv in cvs
+                        if isinstance(cv, dict) and "header" not in cv and cv.get("claim")
+                    ]
+            except Exception as s3_err:
+                # Stage 3 failed — assemble partial result from Stage 2 claim_results
+                clean_cvs = [
+                    {k: v for k, v in r.items() if not k.startswith("_")}
+                    for r in claim_results if r.get("claim")
+                ]
+                result_raw = {"claim_verification": clean_cvs}
+                _dbg.setdefault("warnings", []).append(f"stage3_failed: {s3_err}")
             result = normalize_result(result_raw)
             all_logs = []
+            # Extract claim_types in order from Stage 2 results
+            stage2_types: list[str] = []
             for r in claim_results:
                 all_logs.extend(r.pop("_search_log", []))
+                stage2_types.append(r.get("claim_type", "fact"))
+            # Merge claim_type into final claim_verification list by position
+            final_cvs = result.get("claim_verification", [])
+            for i, cv in enumerate(final_cvs):
+                if not cv.get("claim_type"):
+                    cv["claim_type"] = stage2_types[i] if i < len(stage2_types) else "fact"
             result["_search_log"] = all_logs
             result["_token_usage"] = total
             result["_path"] = "staged_full"
