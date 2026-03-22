@@ -81,6 +81,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             except UnicodeEncodeError:
                 safe = f"  [search] [{self._model}] {fn}({fa})".encode("gbk", errors="replace").decode("gbk")
                 print(safe)
+            try:
+                from ui.loading_overlay import update_stage
+                if fn == "web_search":
+                    q = json.loads(tc.function.arguments).get("query", "")
+                    short = q[:18] + "…" if len(q) > 18 else q
+                    update_stage(f"搜索：{short}")
+                else:
+                    update_stage(f"调用工具…")
+            except Exception:
+                pass
             if fn == "web_search" and query_cache is not None:
                 q = fa.get("query", "")
                 if q in query_cache:
@@ -262,6 +272,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     def analyze_article(self, text: str) -> tuple[dict, dict]:
         _dbg = make_entry("analyze_article", {"text_len": len(text)})
         try:
+            try:
+                from ui.loading_overlay import update_stage
+                update_stage("AI 分析中")
+            except Exception:
+                pass
             messages = [
                 {"role": "system", "content": get_article_prompt(self._tone)},
                 {"role": "user", "content": [{"type": "text", "text": f"请鉴定以下文章/声明的可信度：\n\n{text[:8000]}"}]},
@@ -437,6 +452,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             total = {"input_tokens": 0, "output_tokens": 0}
 
             # Stage 1: claim extraction (images sent only here)
+            try:
+                from ui.loading_overlay import update_stage
+                update_stage("提取关键声明")
+            except Exception:
+                pass
             claims, s1_tokens = self._extract_claims(text, images, trace=_dbg["stages"])
             total["input_tokens"] += s1_tokens["input_tokens"]
             total["output_tokens"] += s1_tokens["output_tokens"]
@@ -462,6 +482,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 return result, token_dict
 
             # Stage 2: parallel independent verification
+            try:
+                from ui.loading_overlay import update_stage
+                update_stage("核查声明")
+            except Exception:
+                pass
             query_cache: dict = {}
             with ThreadPoolExecutor(max_workers=min(len(claims), max_workers)) as ex:
                 claim_results = list(ex.map(
@@ -473,6 +498,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 total["output_tokens"] += t.get("output_tokens", 0)
 
             # Stage 2.5: reflection
+            try:
+                from ui.loading_overlay import update_stage
+                update_stage("交叉核查")
+            except Exception:
+                pass
             extra = self._reflect(text, claim_results, trace=_dbg["stages"])
             if extra:
                 # Deduplicate against already-verified claims
@@ -490,6 +520,11 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 claim_results.extend(extra_results)
 
             # Stage 3: final verdict (no tools, no images)
+            try:
+                from ui.loading_overlay import update_stage
+                update_stage("综合分析中")
+            except Exception:
+                pass
             try:
                 result_raw, vtokens = self._final_verdict(text, claim_results, trace=_dbg["stages"])
                 total["input_tokens"] += vtokens["input_tokens"]

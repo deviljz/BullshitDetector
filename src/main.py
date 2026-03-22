@@ -170,6 +170,8 @@ class BullshitDetectorApp:
         b64 = image_to_base64(image)
         mode = dlg.selected_mode
         self._loading = LoadingOverlay(mode)
+        import ui.loading_overlay as _lo_mod
+        _lo_mod._active_overlay = self._loading
         self._loading.show()
         # 各线程在启动时各自捕获 images/loading/position，避免并发覆盖
         session_id = str(uuid.uuid4())
@@ -236,6 +238,8 @@ class BullshitDetectorApp:
         mode = dlg.selected_mode
         images = dlg.get_images()
         loading = LoadingOverlay(mode)
+        import ui.loading_overlay as _lo_mod
+        _lo_mod._active_overlay = loading
         loading.show()
         session_id = str(uuid.uuid4())
         _mode_for_usage = {"summarize": "summary", "explain": "explain", "source": "source"}.get(mode, "analyze")
@@ -343,6 +347,8 @@ class BullshitDetectorApp:
         self._usage_window.raise_()
 
     def _show_result(self, result: dict, position, loading=None, images=None):
+        import ui.loading_overlay as _lo_mod
+        _lo_mod._active_overlay = None
         if loading:
             loading.close()
         elif self._loading:
