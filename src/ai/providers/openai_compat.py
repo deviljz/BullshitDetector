@@ -426,6 +426,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 result.setdefault("_search_log", [])
                 result["_token_usage"] = total
                 result["_path"] = "staged_shortcut"
+                result["_mode"] = "analyze"
                 token_dict = {"model": self._model, "input": total["input_tokens"], "output": total["output_tokens"]}
                 _dbg["path"] = "staged_shortcut"
                 set_result(_dbg, result, token_dict)
@@ -475,6 +476,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             result["_search_log"] = all_logs
             result["_token_usage"] = total
             result["_path"] = "staged_full"
+            result["_mode"] = "analyze"
 
             token_dict = {"model": self._model, "input": total["input_tokens"], "output": total["output_tokens"]}
             _dbg["path"] = "staged_full"
