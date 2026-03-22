@@ -31,10 +31,11 @@ def _derive_title(result: dict) -> str:
         orig = result.get("original_title") or ""
         return (f"{title}（{orig}）" if orig else title)[:60]
     else:  # analyze
+        _EMPTY = {"无法总结", "分析失败", "解析失败", ""}
         s = result.get("one_line_summary") or ""
-        if not s:
+        if s in _EMPTY:
             h = result.get("header") or {}
-            s = h.get("truth_label") or h.get("verdict") or ""
+            s = h.get("verdict") or h.get("truth_label") or s or ""
         return s[:60]
 
 

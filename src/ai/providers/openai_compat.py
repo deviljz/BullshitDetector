@@ -166,9 +166,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
             messages.append(choice.message)
             for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls, query_cache):
-                search_log.append({"tool": fn, "query": fa.get("query", ""), "result_preview": result[:200]})
+                search_log.append({"tool": fn, "query": fa.get("query", ""), "result_preview": result[:600]})
                 if _stage is not None:
-                    _stage["tool_calls"].append({"fn": fn, "query": fa.get("query", str(fa)[:80]), "result": result[:200]})
+                    _stage["tool_calls"].append({"fn": fn, "query": fa.get("query", str(fa)[:80]), "result": result[:600]})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
 
         content = choice.message.content if choice and choice.message else None
@@ -330,9 +330,12 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         try:
             if len(raw.strip()) < 20:  # truncated / empty response from API
                 return [], tokens
-            # Detect truncated JSON: if raw doesn't end with closing brace, response was cut off
-            raw_stripped = raw.strip()
-            if not raw_stripped.endswith("}") and not raw_stripped.endswith("]"):
+            # Detect truncated JSON: if raw doesn't end with closing brace/bracket, response was cut off
+            # Strip markdown code fences first (model may wrap response in ```json ... ```)
+            raw_check = raw.strip()
+            if raw_check.endswith("```"):
+                raw_check = raw_check[:-3].rstrip()
+            if not raw_check.endswith("}") and not raw_check.endswith("]"):
                 return [], tokens
             data = parse_json(raw)
             if isinstance(data, dict):
