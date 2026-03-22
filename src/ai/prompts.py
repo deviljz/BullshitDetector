@@ -432,6 +432,7 @@ def get_reflect_prompt() -> str:
 - 文章核心数据/人物未被涵盖
 - 某条声明因搜索方向偏差导致结论不可信
 - 标题的核心逻辑前提未被核查
+- 含"N天/周/月回本"类财务声明，且现有核查结果为「官方自述」而非独立第三方核实 → 必须追加独立核查
 
 输出 JSON：{"additional_claims": ["追加声明1", ...]}
 若无需追加：{"additional_claims": []}
@@ -466,6 +467,8 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
 - 有 2+ 个 ✗ 伪造 → 76-100
 
 **⚠️ 强制下限**：claim_verification 中出现任何「✗ 伪造」，bullshit_index **不得低于 56**。
+
+**⚠️ 官方自述财务类声明下限**：claim_verification 中含「✓ 官方自述」且该声明涉及财务/销售/回本/收入数据，bullshit_index **不得低于 20**（官方自述≠独立核实，缺乏第三方财务审计，不可给满分可信）。
 
 ## risk_level 映射（必须严格遵守）
 

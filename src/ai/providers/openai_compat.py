@@ -358,8 +358,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": [{"type": "text", "text":
                     f"文章（摘要）：{article_text[:600]}\n\n已核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
             ],
-            max_tokens=200,
-            response_format={"type": "json_object"},
+            max_tokens=300,
         )
         raw = resp.choices[0].message.content or ""
         tin = resp.usage.prompt_tokens if resp.usage else 0
@@ -390,7 +389,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 {"role": "user", "content": [{"type": "text", "text": user_text}]},
             ],
             max_tokens=4096,
-            response_format={"type": "json_object"},
         )
         tin = resp.usage.prompt_tokens if resp.usage else 0
         tout = resp.usage.completion_tokens if resp.usage else 0
