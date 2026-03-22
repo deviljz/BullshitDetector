@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QLabel, QHBoxLayout, QFrame
-from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
+from PyQt6.QtGui import QFont, QPainter, QColor, QPainterPath
+from PyQt6.QtCore import QRectF
 
 _MODE_CONFIG = {
     "analyze":   ("👃", "正在闻屎中",   "#cba6f7"),
@@ -32,10 +33,18 @@ class LoadingOverlay(QWidget):
     def __init__(self, mode: str = "analyze", parent=None):
         super().__init__(parent)
         icon_char, text, color = _MODE_CONFIG.get(mode, _MODE_CONFIG["analyze"])
+        self._stage_base = "准备中"
+        self._dot_count = 0
         self._setup_window()
         self._setup_ui(icon_char, text, color)
         self._position_to_corner()
         self.stage_changed.connect(self._on_stage_changed)
+
+        # 省略号动画计时器
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_timer.start()
 
     def _setup_window(self):
         self.setWindowFlags(
@@ -46,8 +55,6 @@ class LoadingOverlay(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
         self.setWindowTitle("")
         self.setFixedSize(self._W, self._H)
-        self.winId()
-        self.setWindowOpacity(0.0)
 
     def _setup_ui(self, icon_char: str, text: str, color: str):
         layout = QHBoxLayout(self)
@@ -63,7 +70,7 @@ class LoadingOverlay(QWidget):
 
         layout.addSpacing(8)
 
-        # 左侧：模式文字（静态，不再有省略号动画）
+        # 左侧：模式文字（静态）
         mode_lbl = QLabel(text)
         mode_lbl.setFont(QFont("Microsoft YaHei", 12, QFont.Weight.Bold))
         mode_lbl.setStyleSheet(f"color: {color}; background: transparent; border: none;")
@@ -82,31 +89,38 @@ class LoadingOverlay(QWidget):
         layout.addSpacing(12)
 
         # 右侧：动态阶段文字
-        self._stage_label = QLabel("准备中")
+        self._stage_label = QLabel("准备中.")
         self._stage_label.setFont(QFont("Microsoft YaHei", 11))
         self._stage_label.setStyleSheet("color: #a6adc8; background: transparent; border: none;")
         self._stage_label.setAlignment(Qt.AlignmentFlag.AlignVCenter)
-        self._stage_label.setFixedWidth(140)
+        self._stage_label.setFixedWidth(148)
         layout.addWidget(self._stage_label)
 
-        # 整体背景
-        self.setStyleSheet(
-            "LoadingOverlay {"
-            "  background: rgba(24, 24, 37, 230);"
-            "  border-radius: 14px;"
-            "  border: 1px solid #45475a;"
-            "}"
-        )
+    def paintEvent(self, event):
+        """手动绘制圆角深色背景，避免 WA_TranslucentBackground + FramelessHint 下 stylesheet 不渲染。"""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), 14, 14)
+        painter.fillPath(path, QColor(24, 24, 37, 230))
+        painter.setPen(QColor(69, 71, 90, 200))
+        painter.drawPath(path)
 
-    def showEvent(self, event):
-        super().showEvent(event)
-        self.setWindowOpacity(1.0)
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        dots = "." * self._dot_count
+        max_chars = 13
+        base = self._stage_base if len(self._stage_base) <= max_chars else self._stage_base[:max_chars] + "…"
+        self._stage_label.setText(base + dots)
 
     def _on_stage_changed(self, text: str):
-        # 超长文字截断显示
-        max_chars = 16
-        display = text if len(text) <= max_chars else text[:max_chars] + "…"
-        self._stage_label.setText(display)
+        self._stage_base = text
+        self._dot_count = 0
+        self._tick_dots()
+
+    def closeEvent(self, event):
+        self._dot_timer.stop()
+        super().closeEvent(event)
 
     def _position_to_corner(self):
         from PyQt6.QtWidgets import QApplication
