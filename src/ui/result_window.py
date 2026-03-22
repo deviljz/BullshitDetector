@@ -471,6 +471,8 @@ class ResultWindow(QWidget):
             claim_sec = CollapsibleSection("声明核查", collapsed=False)
             for c in claims:
                 claim_text = c.get("claim", "")
+                if not claim_text or not claim_text.strip():
+                    continue
                 verdict = c.get("verdict", "?")
                 note = c.get("note", "")
                 color = _VERDICT_COLOR.get(verdict[0] if verdict else "?", "#f9e2af")
@@ -496,6 +498,20 @@ class ResultWindow(QWidget):
                     meta_lbl.setWordWrap(True)
                     meta_lbl.setStyleSheet("color: #45475a; font-size: 10px;")
                     claim_sec._content_layout.addWidget(meta_lbl)
+                genealogy = c.get("source_genealogy", "")
+                _GENEALOGY_LABELS = [
+                    ("multi_independent",      "多源独立核实",            "#a6e3a1"),
+                    ("same_source_syndicated", "⚠ 同源转载，实际1个信源", "#f9e2af"),
+                    ("official_only",          "⚠ 仅官方声明，无独立核实","#fab387"),
+                ]
+                matched = next((t for k, t, _ in _GENEALOGY_LABELS if genealogy.startswith(k)), None)
+                g_color_matched = next((c for k, _, c in _GENEALOGY_LABELS if genealogy.startswith(k)), None)
+                if matched:
+                    g_text, g_color = matched, g_color_matched
+                    g_lbl = QLabel(f"    来源性质：{g_text}")
+                    g_lbl.setWordWrap(True)
+                    g_lbl.setStyleSheet(f"color: {g_color}; font-size: 10px;")
+                    claim_sec._content_layout.addWidget(g_lbl)
                 if note:
                     n_lbl = QLabel(f"    {note}")
                     n_lbl.setWordWrap(True)

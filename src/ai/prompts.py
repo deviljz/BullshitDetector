@@ -405,6 +405,13 @@ def get_claim_verify_prompt() -> str:
 ## 搜索策略
 用 web_search 搜索该声明的证据，尝试 2-3 个不同关键词组合（中英文各至少1次）。
 
+## 来源溯源（判断前必须完成）
+搜到多个来源后，判断它们是否真正独立：
+- 发布时间集中在24-48小时内 + 措辞高度相似 → **同源转载**（all trace back to one original）
+- 来自不同机构且内容独立撰写 → **多源独立**
+- 全部来自当事方官网/PR/公告 → **仅官方声明**
+将结论填入 `source_genealogy` 字段。同源转载只算1个有效信源，effective_sources 必须相应降低。
+
 ## 判断决策树（必须按顺序执行，第一个匹配即停止）
 
 **步骤1 — 先检查矛盾**：独立来源（非当事方）的数据明显与声明不符 → verdict = "✗ 伪造"，结束。
@@ -424,7 +431,8 @@ def get_claim_verify_prompt() -> str:
 
 ## 输出格式（JSON）
 {{"verdict": "✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实",
-  "effective_sources": 数量,
+  "source_genealogy": "只填以下代码之一：multi_independent / same_source_syndicated / official_only / unknown",
+  "effective_sources": 数量（同源转载只算1个）,
   "best_source_type": "primary/independent/syndicated/self_reported/none",
   "note": "搜索过程和判断依据（100字以上）",
   "sources": [{{"url": "https://...", "title": "页面标题"}}]}}"""
