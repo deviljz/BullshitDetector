@@ -269,8 +269,10 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         finally:
             write_entry(_dbg)
 
-    def analyze_article(self, text: str) -> tuple[dict, dict]:
+    def analyze_article(self, text: str, _write_debug: bool = True, _ext_stages: list | None = None) -> tuple[dict, dict]:
         _dbg = make_entry("analyze_article", {"text_len": len(text)})
+        if _ext_stages is not None:
+            _dbg["stages"] = _ext_stages  # merge into caller's stages list
         try:
             try:
                 from ui.loading_overlay import update_stage
@@ -295,7 +297,8 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             _dbg["error"] = str(e)
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
         finally:
-            write_entry(_dbg)
+            if _write_debug:
+                write_entry(_dbg)
 
     # ── 分阶段鉴定（staged analysis） ─────────────────────────────────────────
 
@@ -495,8 +498,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
 
             if not claims:
                 _dbg["path"] = "classic_fallback"
-                # analyze_article writes its own debug entry; finally will write staged entry
-                result, token_dict = self.analyze_article(text)
+                # Pass _dbg["stages"] so analyze_article appends its stages there;
+                # disable its own write_entry — staged finally will write one unified entry
+                result, token_dict = self.analyze_article(text, _write_debug=False, _ext_stages=_dbg["stages"])
                 result["_path"] = "classic_fallback"
                 set_result(_dbg, result, token_dict, "classic_fallback")
                 return result, token_dict
