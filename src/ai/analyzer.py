@@ -53,18 +53,13 @@ def analyze_text(text: str, session_id: str | None = None) -> dict:
     return result
 
 
-_TITLE_ISSUE_KEYWORDS = ("因果", "谬误", "夸大", "误导", "标题党", "无关数据", "简化", "绝对化", "煽情")
-
-
 def _has_title_issue(result: dict) -> bool:
-    """title_logic_check 检测到标题问题时返回 True。"""
-    tlc = (result.get("investigation_report") or {}).get("title_logic_check") or ""
-    if not tlc or len(tlc) < 5:
-        return False
-    no_issue = ("无问题", "无明显", "无因果", "标题与", "一致", "合理", "无误")
-    if any(kw in tlc for kw in no_issue):
-        return False
-    return any(kw in tlc for kw in _TITLE_ISSUE_KEYWORDS)
+    """title_logic_check.verdict == '有问题' 时返回 True。"""
+    tlc = (result.get("investigation_report") or {}).get("title_logic_check") or {}
+    if isinstance(tlc, dict):
+        return tlc.get("verdict") == "有问题"
+    # fallback: 旧格式字符串
+    return False
 
 
 def _enforce_bi_floor(result: dict) -> dict:
@@ -84,6 +79,13 @@ def _enforce_bi_floor(result: dict) -> dict:
         bi = max(bi, 31)
     if _has_title_issue(result):
         bi = min(100, bi + 10)
+    hype = (result.get("investigation_report") or {}).get("hype_check") or {}
+    if isinstance(hype, dict) and hype.get("verdict") == "有夸大":
+        hype_type = hype.get("type", "")
+        if hype_type == "第三方估算当事实":
+            bi = min(100, bi + 10)
+        elif hype_type == "绝对化表述":
+            bi = min(100, bi + 5)
     hdr["bullshit_index"] = bi
     rl = ("🚨 极度危险" if bi > 80 else
           "🔶 高度警惕" if bi > 55 else
