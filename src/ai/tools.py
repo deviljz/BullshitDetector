@@ -128,10 +128,15 @@ def _search_bailian(query: str, api_key: str, max_results: int = 5) -> List[dict
         return [{"error": f"百炼搜索失败: {e}"}]
 
 
+_TAVILY_QUOTA_PATTERNS = ("usage limit", "exceeds your plan", "upgrade your plan", "quota exceeded")
+_tavily_quota_exhausted: bool = False  # 运行期 flag：Tavily 配额耗尽后直接走 DDG
+
+
 class SearchProvider:
     """搜索引擎门面，根据 config 自动选择 DDG / Tavily / 百炼。"""
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
+        global _tavily_quota_exhausted
         from config.manager import load as _load_cfg
         cfg = _load_cfg()
         provider = cfg.get("search_provider", "ddg")
@@ -139,7 +144,17 @@ class SearchProvider:
             key = cfg.get("tavily_api_key", "")
             if not key or key.startswith("tvly-xxx"):
                 return [{"error": "Tavily API Key 未配置，请在 config.json 中填写 tavily_api_key"}]
-            return _search_tavily(query, key, max_results)
+            if not _tavily_quota_exhausted:
+                results = _search_tavily(query, key, max_results)
+                if results and "error" in results[0]:
+                    err = results[0].get("error", "")
+                    if any(p in err for p in _TAVILY_QUOTA_PATTERNS):
+                        _tavily_quota_exhausted = True
+                        print("  ⚠️ Tavily 配额耗尽，本次运行自动切换至 DuckDuckGo")
+                        return _search_ddg(query, max_results)
+                return results
+            # 配额已耗尽，本次运行直接走 DDG
+            return _search_ddg(query, max_results)
         if provider == "bailian":
             key = cfg.get("bailian_api_key", "")
             if not key:

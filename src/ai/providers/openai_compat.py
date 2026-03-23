@@ -13,6 +13,13 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
+
+_SEARCH_QUOTA_PATTERNS = ("usage limit", "exceeds your plan", "upgrade your plan", "quota exceeded")
+
+
+class SearchUnavailableError(Exception):
+    """搜索服务不可用（配额耗尽或系统性失败），分析结果不可信。"""
+
 from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt, get_title_logic_prompt, get_hype_check_prompt, get_framing_check_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
@@ -172,11 +179,22 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                 break
 
             messages.append(choice.message)
-            for tc, fn, fa, result in self._exec_tools_parallel(choice.message.tool_calls, query_cache):
+            _round_results = self._exec_tools_parallel(choice.message.tool_calls, query_cache)
+            _search_results_this_round = []
+            for tc, fn, fa, result in _round_results:
                 search_log.append({"tool": fn, "query": fa.get("query", ""), "result_preview": result[:600]})
                 if _stage is not None:
                     _stage["tool_calls"].append({"fn": fn, "query": fa.get("query", str(fa)[:80]), "result": result[:600]})
                 messages.append({"role": "tool", "tool_call_id": tc.id, "content": result})
+                if fn == "web_search":
+                    _search_results_this_round.append(result)
+            # Detect systematic search quota failure: all searches failed in this round
+            if _search_results_this_round and all(
+                any(p in r for p in _SEARCH_QUOTA_PATTERNS) for r in _search_results_this_round
+            ):
+                raise SearchUnavailableError(
+                    "搜索服务配额已耗尽，无法完成事实核查。请检查搜索 API 配额后重试。"
+                )
 
         content = choice.message.content if choice and choice.message else None
         needs_retry = (
@@ -757,6 +775,9 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             _dbg["path"] = "staged_full"
             set_result(_dbg, result, token_dict)
             return result, token_dict
+        except SearchUnavailableError as e:
+            _dbg["error"] = str(e)
+            return _error_result(str(e)), self._zero_tokens()
         except Exception as e:
             _dbg["error"] = str(e)
             return _error_result(f"{type(e).__name__}: {e}\n{traceback.format_exc()}"), self._zero_tokens()
