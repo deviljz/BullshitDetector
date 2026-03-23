@@ -1,4 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF
+from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF, _BI_CONSISTENCY_RULE, _RETROCOST_CHECK, _NARRATIVE_CAVEATS_RULE
 
 
 def get_system_prompt(tone: str = "toxic") -> str:
@@ -115,9 +115,10 @@ def _build_prompt(t: dict) -> str:
 2. **content_nature 检查**：investigation_report.content_nature 必须填写（社交媒体截图/新闻报道截图/官方公文/自媒体内容/聊天记录/其他），不可留空。
 3. **claim_verification 关键检查**：
    - 社交媒体事件搜索无结果 → 填"? 无法核实"，**不得**填"✗ 伪造"
-   - **核实一致性**：全部 verdict 为「✓」→ bullshit_index **必须 ≤ 30**（50≠"不确定"，50="一半内容是假的"）；有「? 无法核实」但无「✗ 伪造」→ 上限 45；只有存在「✗ 伪造」时才允许 > 50
-   - **回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。
+   - {_BI_CONSISTENCY_RULE}
+   - {_RETROCOST_CHECK}
 4. **caveats 填写**：检查以下情况写入 caveats 数组（每条一句话，最多4条）：归因错误（"X官方表示"但实为第三方估算）、叙事框架偏差（省略不利对比、将普通成绩包装成异常突破）、财务数据隐性前提（只算开发预算不含宣发/平台分成）。无则填 `[]`。
+{_NARRATIVE_CAVEATS_RULE}
 5. {t['self_audit_summary']}
 
 ---
@@ -251,12 +252,10 @@ def _build_article_prompt(t: dict) -> str:
 1. {t['self_audit_review']}
 2. **claim_verification 检查**：必须逐条列出文章中的核心可验证声明（至少1条，最多4条），每条用 verdict 字段标明"✓ 独立核实属实 / ✓ 官方自述 / ✗ 伪造 / ? 无法核实"（有 primary/independent 来源支持→独立核实属实；仅 self_reported→官方自述），effective_sources 填有效信源数（同源转载只算1个），best_source_type 填最高级别来源类型，note 字段写搜索证据或判断依据
 3. {t['self_audit_summary']}
-4. **回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。
-5. **⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。
-   **【narrative 例外】**：若 claim_verification 中存在 claim_type="narrative" 的条目且其 verdict 为「✓」，说明该叙事论点未被推翻但并不等于客观事实——**每条 narrative ✓ 将 bullshit_index 基准上调 10**（叙事论点本质上是可辩驳的解释框架，不是可证伪的事实）。若所有 fact 类声明均为「✓」但有2条 narrative 类「✓」，bi = 20（基准）+ 10×2 = 40。
-   **【标题党额外加分】**：若 title_logic_check 判定标题存在因果谬误（将相关性伪装成因果）或严重夸大（"天才""最大痛点""彻底解决"等绝对化表述），bullshit_index **额外 +10**（即使所有 claim 均为 ✓，标题误导读者本身就是一种扯淡）。
+4. {_RETROCOST_CHECK}
+5. {_BI_CONSISTENCY_RULE}
 6. **caveats 填写**：检查以下情况写入 caveats 数组（每条一句话，最多4条）：归因错误（"X官方表示"但实为第三方估算）、叙事框架偏差（将普通成绩包装成异常突破、省略不利对比如续作不如前作同期）、财务数据隐性前提（只算开发预算不含宣发/平台分成）、重要对比基准遗漏。无则填 `[]`。
-   **【narrative 强制】**：若 claim_verification 中存在 claim_type="narrative" 的条目，caveats **必须包含至少1条**针对该叙事论点的质疑（如"该论点省略了X对比数据""将相关性解读为因果"），不得为空数组。
+{_NARRATIVE_CAVEATS_RULE}
 
 ---
 

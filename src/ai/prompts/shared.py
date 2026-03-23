@@ -69,3 +69,17 @@ _RADAR_CHART_DEF = """\
 - **agitation_level**（煽动烈度）：情绪操纵程度（0=中性，5=极度煽动）
 - **search_match**（搜索核实）：核心事实能否被搜索证实\
 """
+
+_RETROCOST_CHECK = """\
+**回本类声明检查**：内容含"N天/周/月回本"类表述 → claim_verification 必须有对应的独立条目；若全部「✓」但含此类表述，视为漏验，重新核查。\
+"""
+
+_BI_CONSISTENCY_RULE = """\
+**⚠️ 核实一致性强制规则**：若 claim_verification 中全部 verdict 均为「✓」（无任何「✗ 伪造」），bullshit_index **必须 ≤ 30**。50 意味着"一半内容是假的"，不代表"我有点不确定"。有「? 无法核实」但无「✗ 伪造」→ 上限 45；只有存在「✗ 伪造」时才允许 > 50。
+   **【narrative 例外】**：若 claim_verification 中存在 claim_type="narrative" 的条目且其 verdict 为「✓」，说明该叙事论点未被推翻但并不等于客观事实——**每条 narrative ✓ 将 bullshit_index 基准上调 10**（叙事论点本质上是可辩驳的解释框架，不是可证伪的事实）。若所有 fact 类声明均为「✓」但有2条 narrative 类「✓」，bi = 20（基准）+ 10×2 = 40。
+   **【标题党额外加分】**：若 title_logic_check 判定标题存在因果谬误（将相关性伪装成因果）或严重夸大（"天才""最大痛点""彻底解决"等绝对化表述），bullshit_index **额外 +10**（即使所有 claim 均为 ✓，标题误导读者本身就是一种扯淡）。\
+"""
+
+_NARRATIVE_CAVEATS_RULE = """\
+   **【narrative 强制】**：若 claim_verification 中存在 claim_type="narrative" 的条目，caveats **必须包含至少1条**针对该叙事论点的质疑（如"该论点省略了X对比数据""将相关性解读为因果"），不得为空数组。\
+"""
