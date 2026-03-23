@@ -13,7 +13,7 @@ from openai import OpenAI
 import openai
 
 from ai.providers.base import BaseLLMProvider
-from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt
+from ai.prompts import get_system_prompt, get_article_prompt, get_summary_prompt, get_explain_prompt, get_explain_classify_prompt, get_source_prompt, get_source_classify_prompt, get_follow_up_prompt, get_claim_extract_prompt, get_claim_verify_prompt, get_reflect_prompt, get_final_verdict_prompt, get_title_logic_prompt, get_hype_check_prompt, get_framing_check_prompt
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import TOOLS, SOURCE_TOOLS, execute_tool, set_source_image, get_last_vision_urls, get_last_vision_page_urls
 from ai.debug_log import make_entry, make_stage, finish_stage, set_result, write_entry, sanitize_messages
@@ -446,11 +446,129 @@ class OpenAICompatibleProvider(BaseLLMProvider):
         except Exception:
             return []
 
-    def _final_verdict(self, article_text: str, claim_results: list[dict],
-                       trace: list | None = None) -> tuple[dict, dict]:
-        """Stage 3: Final verdict using pre-computed claim results, no tools, no images."""
+    @staticmethod
+    def _calculate_bi(claim_results: list[dict], title_logic: dict, hype: dict) -> tuple[int, str]:
+        """Deterministic bi calculation from structured inputs."""
+        fake = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
+        unverified = sum(1 for c in claim_results if "?" in c.get("verdict", ""))
+        narrative_true = sum(1 for c in claim_results
+                             if c.get("claim_type") == "narrative" and "✓" in c.get("verdict", ""))
+        # Base floors
+        if fake >= 2:
+            bi = 76
+        elif fake == 1:
+            bi = 56
+        elif unverified > 0:
+            bi = 31
+        else:
+            bi = 15
+        # Adjustments
+        bi += 5 * max(0, fake - 2)
+        bi += 2 * unverified
+        bi += 10 * narrative_true
+        if "有问题" in (title_logic.get("verdict") or ""):
+            bi += 10
+        if "有夸大" in (hype.get("verdict") or ""):
+            bi += 10 if hype.get("type") == "第三方估算当事实" else 5
+        bi = min(bi, 100)
+        risk = ("🚨 极度危险" if bi > 80 else
+                "🔶 高度警惕" if bi > 55 else
+                "⚠️ 有所存疑" if bi > 30 else
+                "✅ 基本可信")
+        return bi, risk
+
+    def _check_title_logic(self, article_text: str, claim_results: list[dict],
+                            trace: list | None = None) -> dict:
+        """Stage 3a: Title logic check (no tools)."""
         clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        _t0 = time.monotonic()
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_title_logic_prompt()},
+                {"role": "user", "content": [{"type": "text", "text":
+                    f"文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+            ],
+            max_tokens=500,
+            **_NO_THINKING,
+        )
+        raw = resp.choices[0].message.content or ""
+        if trace is not None:
+            trace.append({"name": "title_logic_check", "response": raw[:200],
+                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
+                                     "output": resp.usage.completion_tokens if resp.usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        try:
+            return parse_json(raw) or {"verdict": "无问题", "reason": ""}
+        except Exception:
+            return {"verdict": "无问题", "reason": ""}
+
+    def _check_hype(self, article_text: str, trace: list | None = None) -> dict:
+        """Stage 3b: Hype/exaggeration check (no tools)."""
+        _t0 = time.monotonic()
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_hype_check_prompt()},
+                {"role": "user", "content": [{"type": "text", "text": f"文章内容：{article_text[:1500]}"}]},
+            ],
+            max_tokens=300,
+            **_NO_THINKING,
+        )
+        raw = resp.choices[0].message.content or ""
+        if trace is not None:
+            trace.append({"name": "hype_check", "response": raw[:200],
+                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
+                                     "output": resp.usage.completion_tokens if resp.usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        try:
+            return parse_json(raw) or {"verdict": "无夸大", "type": "无", "reason": ""}
+        except Exception:
+            return {"verdict": "无夸大", "type": "无", "reason": ""}
+
+    def _check_framing(self, article_text: str, claim_results: list[dict],
+                        trace: list | None = None) -> list[str]:
+        """Stage 3c: Framing bias check + caveats generation (no tools)."""
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        _t0 = time.monotonic()
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_framing_check_prompt()},
+                {"role": "user", "content": [{"type": "text", "text":
+                    f"文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+            ],
+            max_tokens=400,
+            **_NO_THINKING,
+        )
+        raw = resp.choices[0].message.content or ""
+        if trace is not None:
+            trace.append({"name": "framing_check", "response": raw[:200],
+                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
+                                     "output": resp.usage.completion_tokens if resp.usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        try:
+            data = parse_json(raw)
+            return data.get("caveats", [])[:4] if isinstance(data, dict) else []
+        except Exception:
+            return []
+
+    def _final_verdict(self, article_text: str, claim_results: list[dict],
+                       title_logic: dict, hype_check: dict, caveats: list[str],
+                       bi: int, risk_level: str,
+                       trace: list | None = None) -> tuple[dict, dict]:
+        """Stage 4: Final verdict using pre-computed results, no tools, no images."""
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        pre_computed = {
+            "bullshit_index": bi,
+            "risk_level": risk_level,
+            "title_logic_check": title_logic,
+            "hype_check": hype_check,
+            "caveats": caveats,
+        }
         user_text = (f"文章内容：\n\n{article_text[:8000]}\n\n"
+                     f"---\n【预计算结果（原样复制到输出，禁止修改）】：\n"
+                     f"{json.dumps(pre_computed, ensure_ascii=False)}\n\n"
                      f"---\n【已完成的逐条声明核查，原样复制到输出的 claim_verification，禁止修改】：\n"
                      f"{json.dumps(clean, ensure_ascii=False)}")
         _t0 = time.monotonic()
@@ -570,14 +688,29 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     total["output_tokens"] += t.get("output_tokens", 0)
                 claim_results.extend(extra_results)
 
-            # Stage 3: final verdict (no tools, no images)
+            # Stage 3: parallel checks (no search tools)
             try:
                 from ui.loading_overlay import update_stage
                 update_stage("综合分析中")
             except Exception:
                 pass
             try:
-                result_raw, vtokens = self._final_verdict(text, claim_results, trace=_dbg["stages"])
+                with ThreadPoolExecutor(max_workers=3) as ex:
+                    f_title = ex.submit(self._check_title_logic, text, claim_results, _dbg["stages"])
+                    f_hype = ex.submit(self._check_hype, text, _dbg["stages"])
+                    f_framing = ex.submit(self._check_framing, text, claim_results, _dbg["stages"])
+                    title_logic = f_title.result()
+                    hype_check = f_hype.result()
+                    caveats = f_framing.result()
+
+                # Calculate bi deterministically in Python
+                bi, risk_level = self._calculate_bi(claim_results, title_logic, hype_check)
+
+                # Stage 4: final verdict (creative synthesis only)
+                result_raw, vtokens = self._final_verdict(
+                    text, claim_results, title_logic, hype_check, caveats, bi, risk_level,
+                    trace=_dbg["stages"]
+                )
                 total["input_tokens"] += vtokens["input_tokens"]
                 total["output_tokens"] += vtokens["output_tokens"]
                 # Filter malformed items (error results Stage 3 expanded into full header/radar_chart objects)

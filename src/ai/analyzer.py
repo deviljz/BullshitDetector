@@ -57,7 +57,7 @@ def _has_title_issue(result: dict) -> bool:
     """title_logic_check.verdict == '有问题' 时返回 True。"""
     tlc = (result.get("investigation_report") or {}).get("title_logic_check") or {}
     if isinstance(tlc, dict):
-        return tlc.get("verdict") == "有问题"
+        return "有问题" in (tlc.get("verdict") or "")
     # fallback: 旧格式字符串
     return False
 
@@ -80,7 +80,7 @@ def _enforce_bi_floor(result: dict) -> dict:
     if _has_title_issue(result):
         bi = min(100, bi + 10)
     hype = (result.get("investigation_report") or {}).get("hype_check") or {}
-    if isinstance(hype, dict) and hype.get("verdict") == "有夸大":
+    if isinstance(hype, dict) and "有夸大" in (hype.get("verdict") or ""):
         hype_type = hype.get("type", "")
         if hype_type == "第三方估算当事实":
             bi = min(100, bi + 10)
@@ -99,14 +99,14 @@ def analyze_screenshot_staged(images: list[str], extra_text: str = "", session_i
     """截图分析（分阶段多 Agent 路径）。"""
     result, tokens = _load_provider().analyze_article_staged(extra_text or "", images)
     _record(session_id, "analyze", tokens)
-    return _enforce_bi_floor(result)
+    return result
 
 
 def analyze_text_staged(text: str, images: list[str] | None = None, session_id: str | None = None) -> dict:
     """分析文章/声明文字的可信度（分阶段多 Agent 路径）。"""
     result, tokens = _load_provider().analyze_article_staged(text, images)
     _record(session_id, "analyze", tokens)
-    return _enforce_bi_floor(result)
+    return result
 
 
 def summarize_screenshot(images: list[str], extra_text: str = "", session_id: str | None = None) -> dict:

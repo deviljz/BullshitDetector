@@ -6,6 +6,9 @@ from .analyze_staged import (
     get_claim_verify_prompt,
     get_reflect_prompt,
     get_final_verdict_prompt,
+    get_title_logic_prompt,
+    get_hype_check_prompt,
+    get_framing_check_prompt,
 )
 from .summary import get_summary_prompt
 from .explain import get_explain_classify_prompt, get_explain_prompt
@@ -17,6 +20,7 @@ __all__ = [
     "get_system_prompt", "get_article_prompt",
     "get_claim_extract_prompt", "get_claim_verify_prompt",
     "get_reflect_prompt", "get_final_verdict_prompt",
+    "get_title_logic_prompt", "get_hype_check_prompt", "get_framing_check_prompt",
     "get_summary_prompt",
     "get_explain_classify_prompt", "get_explain_prompt",
     "get_source_classify_prompt", "get_source_prompt",

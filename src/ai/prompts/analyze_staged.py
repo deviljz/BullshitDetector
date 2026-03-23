@@ -241,16 +241,10 @@ def get_claim_verify_prompt() -> str:
 
 ## 判断决策树（必须按顺序执行，第一个匹配即停止）
 
-**步骤0 — 张冠李戴检查（强制流程）**：若你认为该声明是"将A的内容归因于B"（张冠李戴），必须先完成以下检查，否则**禁止得出张冠李戴结论**：
-1. 通过 web_search 找到一个具体 URL，该页面内容**明确说明**"声明中的数字/事件实际上属于A而非B"？
-   → 是：将该 URL 放入 sources，attribution_note 写明该来源的具体内容
-   → 否：**不得得出张冠李戴结论**，改判"? 无法核实"，attribution_note 留空
-
-规则：
-- 你在训练数据中"知道"A有类似的数字/事件，**不构成张冠李戴的证据**——新作可能确实有相同的评分/作者再次演讲
-- 同系列不同作品的数据**不得**用于否定当前声明
-- 同名但不同年份的演讲/发布会**不得**视为矛盾
-- 数字相同≠张冠李戴：必须有 URL 明确指出"该数字/事件属于A而非B"
+**步骤0 — 防先验偏见**：
+- **禁止用训练知识判伪造**：判"✗ 伪造"必须通过 web_search 找到**明确反驳当前声明**的具体 URL 证据；仅凭训练知识、推断或"与其他作品数字相似"，禁止判伪造
+- **搜索范围只限声明本身**：只搜声明中明确提到的作品/人物/事件；禁止主动搜索前作/相关作品——找到的前作来源对当前声明 effective_sources=0
+- **搜不到 ≠ 假的**：若只找到相似但不同的事物（前作、同系列其他作品、不同年份同类活动），判"? 无法核实"，不得推断"张冠李戴"
 
 **步骤1 — 先检查矛盾**：独立来源（非当事方）针对**同一事件**提供了**具体数字**与声明明确不符 → verdict = "✗ 伪造"，结束。
 - ⚠️ "搜不到"≠"矛盾"。搜索结果匮乏（尤其近期事件）只能判"? 无法核实"，不能判"✗ 伪造"
@@ -302,8 +296,49 @@ def get_reflect_prompt() -> str:
 追加声明最多2条，不得重复已有声明。声明必须是文章中的具体事实性陈述（如"销量X万份"），禁止输出"核查XXX"/"验证XXX"等元描述。"""
 
 
+def get_title_logic_prompt() -> str:
+    """Stage 3a: 标题逻辑核查（独立 Agent，无搜索）。"""
+    return f"""今天的日期是 {_current_date}。
+
+根据文章标题、内容及已完成的声明核查结果，判断标题是否存在逻辑问题。
+
+判断以下三类问题（有则 verdict="有问题"）：
+1. **因果谬误**：将相关性伪装成因果，或用商业成功数字暗示某单一因素是主因，忽略其他显著因素（品牌积累/前作口碑/续集效应等）；若标题核心因果关系在核查结果中仅为"✓ 官方自述"而非"✓ 独立核实属实"，说明缺乏独立验证，应判"有问题"
+2. **粗估当事实**：将第三方估算（如基于未公开成本反推的"N天回本"）当作已证明的事实陈述
+3. **绝对化夸大**："天才""最大痛点""彻底解决""首创"等无依据的极端表述
+
+输出 JSON（不加 markdown 代码块）：{{"verdict": "有问题 | 无问题", "reason": "若有问题则具体说明谬误结构；若无问题填空字符串"}}"""
+
+
+def get_hype_check_prompt() -> str:
+    """Stage 3b: 夸大检测（独立 Agent，无搜索）。"""
+    return """根据文章内容，判断是否存在夸大表述。
+
+三类判定标准：
+- **第三方估算当事实**：将基于非公开数据推算的结论（如开发成本未公开时的"N天回本"）当作已证明的事实陈述；注意：官方公布的财报销量/MC评分等可验证数据不属于此类
+- **绝对化表述**："最大""天才""颠覆""彻底解决""首创"等无量化依据的极端形容
+- **无夸大**：表述客观，数据有来源支撑
+
+输出 JSON（不加 markdown 代码块）：{"verdict": "有夸大 | 无夸大", "type": "第三方估算当事实 | 绝对化表述 | 无", "reason": "具体说明"}"""
+
+
+def get_framing_check_prompt() -> str:
+    """Stage 3c: 叙事框架核查 + caveats 生成（独立 Agent，无搜索）。"""
+    return """根据文章内容和已完成的声明核查结果，识别叙事框架问题并生成 caveats。
+
+检查以下情况（有则写入数组，每条一句话，最多4条）：
+- 归因有误：声明归因于"X官方表示"但实为第三方估算 → "归因问题：[具体说明]"
+- 叙事框架偏差：将普通成绩包装成异常突破，或省略不利对比 → 写具体偏差
+- 财务数据隐性前提：只算开发预算不含宣发/平台分成 → "[声明]的回本计算未含宣发成本，实际周期更长"
+- 对比基准遗漏：如续作销量好但不如前作同期 → 写具体遗漏
+
+无以上问题则输出空数组。
+
+输出 JSON（不加 markdown 代码块）：{"caveats": ["具体问题1", ...]}"""
+
+
 def get_final_verdict_prompt(tone: str = "toxic") -> str:
-    """分阶段鉴定 Stage 3：基于已完成的声明核查汇总最终裁决（禁止搜索，禁止改动 claim_verification）。"""
+    """分阶段鉴定 Stage 4：基于预计算结果写创意裁决文本（禁止搜索，禁止改动结构化字段）。"""
     t = _TONE_CONFIGS.get(tone, _TONE_CONFIGS["toxic"])
     return f"""{t['persona']}
 
@@ -311,44 +346,17 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
 
 ## 你的角色
 
-声明核查已由独立 Agent 完成，结果在用户消息中。你的唯一任务是：
+声明核查、bullshit_index、risk_level、title_logic_check、hype_check、caveats 已由专项 Agent 完成，结果在用户消息中。
 
-1. **原样复制** claim_verification 到输出（verdict / note / sources / effective_sources / claim 一字不改）
-2. 基于这些核查结论，填写 header、radar_chart、investigation_report、toxic_review、flaw_list、one_line_summary
+**你只需要做以下几件事：**
+1. **原样复制** claim_verification（一字不改）
+2. **原样复制** bullshit_index、risk_level、title_logic_check、hype_check、caveats（一字不改）
+3. **创作** header.truth_label 和 header.verdict（根据给定的 bi 和核查结论）
+4. **评估** radar_chart 4个维度（0-5分）
+5. **分析** investigation_report 中的定性字段：content_nature、source_origin、time_check、entity_check、physics_check、source_independence_note、missing_info、intent_check、framing_bias
+6. **创作** toxic_review、flaw_list、one_line_summary
 
-**禁止调用任何工具。禁止自行搜索。禁止修改 claim_verification 中任何字段。**
-
----
-
-## bullshit_index 推导规则（强制执行）
-
-从 claim_verification 的 verdict 字段推导，选最高档：
-
-- 全部 ✓（无 ? 无 ✗）→ 0-30
-- 有 ? 无 ✗ → 31-55
-- 有 1 个 ✗ 伪造 → 56-75
-- 有 2+ 个 ✗ 伪造 → 76-100
-
-**⚠️ 强制下限**：claim_verification 中出现任何「✗ 伪造」，bullshit_index **不得低于 56**。
-
-**⚠️ 官方自述财务类声明下限**：claim_verification 中含「✓ 官方自述」且该声明涉及财务/销售/回本/收入数据，bullshit_index **不得低于 20**（官方自述≠独立核实，缺乏第三方财务审计，不可给满分可信）。
-
-## caveats 填写规则（必须在输出前完成）
-
-检查以下情况，有则写入 caveats 数组（每条一句话，最多4条）：
-1. claim_verification 中任何 `attribution_note` 非空 → 写"归因错误：[attribution_note内容]"
-2. 叙事框架存在偏差（如将正常续作销量包装成异常突破、省略不利对比） → 写具体偏差
-3. 财务类声明未包含完整成本（如只算开发预算不含宣发/平台分成） → 写"[声明]的回本计算未含宣发成本，实际回本周期更长"
-4. 重要对比基准被省略（如续作销量好但不如前作同期） → 写具体遗漏对比
-
-无上述问题则填空数组 `[]`。
-
-## risk_level 映射（必须严格遵守）
-
-- 0-30 → "✅ 基本可信"
-- 31-55 → "⚠️ 有所存疑"
-- 56-80 → "🔶 高度警惕"
-- 81-100 → "🚨 极度危险"
+**禁止调用任何工具。禁止搜索。禁止修改数字化/结构化字段。**
 
 ---
 
@@ -357,11 +365,11 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 
 {{
-  "claim_verification": [...从用户消息中原样复制，每个 claim 的所有字段一字不改...],
+  "claim_verification": [...从用户消息中原样复制，每个字段一字不改...],
   "header": {{
-    "bullshit_index": 按上方规则推导的整数,
+    "bullshit_index": 从用户消息原样复制的整数,
     "truth_label": "生动描述，例如：65% 的硬核技术分享 + 35% 的营销暴论",
-    "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按映射规则填写）",
+    "risk_level": "从用户消息原样复制",
     "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
   }},
   "radar_chart": {{
@@ -372,18 +380,18 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
   }},
   "investigation_report": {{
     "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他",
-    "source_origin": "文章来源识别",
-    "time_check": "时间线核查",
-    "entity_check": "机构/人名/来源核查",
-    "physics_check": "技术常识核查",
-    "source_independence_note": "信源独立性分析",
-    "hype_check": {{"verdict": "有夸大 | 无夸大", "type": "第三方估算当事实 | 绝对化表述 | 无", "reason": "具体说明"}},
-    "missing_info": "遗漏信息",
-    "intent_check": "意图检测",
-    "title_logic_check": {{"verdict": "有问题 | 无问题", "reason": "若有问题：具体说明谬误结构；若无问题填空字符串"}},
-    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准？是否将普通成绩包装成异常突破？"
+    "source_origin": "文章来源识别：自媒体/科技媒体/官方新闻等",
+    "time_check": "时间线核查：文章引用的数据/事件时间是否与核查结果吻合",
+    "entity_check": "机构/人名/来源核查：关键实体是否真实",
+    "physics_check": "技术常识核查：技术声明是否符合行业共识",
+    "source_independence_note": "信源独立性：基于 claim_verification 中 effective_sources 和 source_genealogy 的综合评估",
+    "hype_check": {{从用户消息原样复制}},
+    "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或关键对比基准",
+    "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图",
+    "title_logic_check": {{从用户消息原样复制}},
+    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准？"
   }},
-  "caveats": ["重要提示1：归因错误/框架偏差/隐性前提/遗漏对比（如有，从claim_verification的attribution_note汇总）", "..."],
+  "caveats": [从用户消息原样复制],
   "toxic_review": "{{t_output_review}}",
   "flaw_list": ["破绽1：具体指出哪里夸大/无来源/意图不纯", "破绽2：..."],
   "one_line_summary": "{{t_output_summary}}"
