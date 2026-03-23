@@ -386,7 +386,7 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             claim_type = "fact"
         user_text = f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim_text}"
         if claim_type == "narrative":
-            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点），请搜索对比数据（如与前作/同类作品同期数据对比）来验证或推翻。"
+            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点/因果解释），此类声明通常难以直接证伪。请搜索是否有具体反驳证据；若搜不到直接矛盾，应判'? 无法核实'。"
         messages = [
             {"role": "system", "content": get_claim_verify_prompt()},
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
@@ -395,13 +395,21 @@ class OpenAICompatibleProvider(BaseLLMProvider):
             messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
             max_rounds=3, query_cache=query_cache,
             trace=trace, stage_name=f"verify: {claim_text[:40]}",
-            temperature=0, extra_create_kwargs={"reasoning_effort": "medium"},
+            temperature=0, extra_create_kwargs={"reasoning_effort": "low"},
         )
         try:
             result = parse_json(content)
+            if isinstance(result, list) and result:
+                result = result[0]
+            if not isinstance(result, dict):
+                raise ValueError("not a dict")
         except Exception:
             result = {"verdict": "? 无法核实", "effective_sources": 0,
                       "best_source_type": "none", "note": "核查解析失败", "sources": []}
+        # Hard enforcement: no sources → cannot be ✗ 伪造 (model may ignore prompt rule)
+        if result.get("verdict") == "✗ 伪造" and result.get("effective_sources", 0) == 0:
+            result["verdict"] = "? 无法核实"
+            result["note"] = result.get("note", "") + " [effective_sources=0，自动改判为无法核实]"
         result["claim"] = claim_text
         result["claim_type"] = claim_type
         result["_search_log"] = search_log
