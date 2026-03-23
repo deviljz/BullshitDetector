@@ -150,7 +150,10 @@ class SearchProvider:
                     err = results[0].get("error", "")
                     if any(p in err for p in _TAVILY_QUOTA_PATTERNS):
                         _tavily_quota_exhausted = True
-                        print("  ⚠️ Tavily 配额耗尽，本次运行自动切换至 DuckDuckGo")
+                        try:
+                            print("  [!] Tavily 配额耗尽，本次运行自动切换至 DuckDuckGo")
+                        except Exception:
+                            pass
                         return _search_ddg(query, max_results)
                 return results
             # 配额已耗尽，本次运行直接走 DDG
@@ -261,6 +264,94 @@ SOURCE_TOOLS = [
         },
     },
 ]
+
+# Plan-and-Execute 外层 Agent 工具集
+PLAN_EXECUTE_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "verify_claim",
+            "description": "核查文章中的一条具体事实性声明。工具内部会自动搜索相关证据并返回核查结论。适用于含具体数字、人名、事件的声明；主观观点和无法核查的预测不需要核查。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "claim": {"type": "string", "description": "待核查的声明原文"},
+                    "claim_type": {"type": "string", "enum": ["fact", "narrative"], "description": "fact：含具体数字/人名/事件可直接搜索；narrative：因果/评价类隐含论点"},
+                    "context": {"type": "string", "description": "声明所在文章的标题和核心背景（100字以内）"},
+                },
+                "required": ["claim", "claim_type"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_title_logic",
+            "description": "检查标题是否存在因果谬误或用无关数据背书核心论点。适用于标题含'因为X所以Y'、'凭借X实现Y'等逻辑链条的文章。简单陈述类标题无需调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_hype",
+            "description": "检查文章是否存在夸大表述：第三方估算被当作事实陈述、含'最''首''唯一'等绝对化表述。含大量财务数据或极端形容词时调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "submit_verdict",
+            "description": "完成所有必要核查后提交最终结论。调用此工具将立即结束分析流程。请确认已核查所有重要声明后再调用。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "claim_verification": {
+                        "type": "array",
+                        "description": "所有已核查声明的结果列表（从 verify_claim 工具返回结果中收集，原样复制，禁止修改数字和判断）",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "claim": {"type": "string"},
+                                "claim_type": {"type": "string"},
+                                "verdict": {"type": "string"},
+                                "effective_sources": {"type": "integer"},
+                                "best_source_type": {"type": "string"},
+                                "source_genealogy": {"type": "string"},
+                                "note": {"type": "string"},
+                            },
+                        },
+                    },
+                    "investigation_report": {
+                        "type": "object",
+                        "description": "综合调查报告，包含标题逻辑和夸大程度分析结果（从工具返回结果中收集）",
+                        "properties": {
+                            "title_logic_check": {"type": "object"},
+                            "hype_check": {"type": "object"},
+                            "caveats": {"type": "array", "items": {"type": "string"}, "description": "重要补充说明（如信息来源单一、时效性限制等），可为空数组"},
+                        },
+                    },
+                    "one_line_summary": {"type": "string", "description": "一句话概括文章核心问题（≤30字）"},
+                    "toxic_review": {"type": "string", "description": "鉴屎官风格的辛辣评语（根据文章实际质量，好文章也可以给正面评价）"},
+                    "verdict_text": {"type": "string", "description": "最终判决陈述（2-3句话，概括核查发现）"},
+                },
+                "required": ["claim_verification", "one_line_summary", "verdict_text"],
+            },
+        },
+    },
+]
+
+# Planner 阶段只能调用 verify_claim（强制提取核查清单）
+PLANNER_TOOLS = [t for t in PLAN_EXECUTE_TOOLS if t["function"]["name"] == "verify_claim"]
 
 # 全局搜索实例
 _search_provider = SearchProvider()

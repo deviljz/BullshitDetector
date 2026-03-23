@@ -96,15 +96,15 @@ def _enforce_bi_floor(result: dict) -> dict:
 
 
 def analyze_screenshot_staged(images: list[str], extra_text: str = "", session_id: str | None = None) -> dict:
-    """截图分析（分阶段多 Agent 路径）。"""
-    result, tokens = _load_provider().analyze_article_staged(extra_text or "", images)
+    """截图分析（Plan-and-Execute 多 Agent 路径）。"""
+    result, tokens = _load_provider().analyze_article_plan_execute(extra_text or "", images)
     _record(session_id, "analyze", tokens)
     return result
 
 
 def analyze_text_staged(text: str, images: list[str] | None = None, session_id: str | None = None) -> dict:
-    """分析文章/声明文字的可信度（分阶段多 Agent 路径）。"""
-    result, tokens = _load_provider().analyze_article_staged(text, images)
+    """分析文章/声明文字的可信度（Plan-and-Execute 多 Agent 路径）。"""
+    result, tokens = _load_provider().analyze_article_plan_execute(text, images)
     _record(session_id, "analyze", tokens)
     return result
 
