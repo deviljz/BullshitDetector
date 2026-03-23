@@ -1,60 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF
-
-
-def get_claim_extract_prompt() -> str:
-    """分阶段鉴定 Stage 1：从文章提取可核查声明（含叙事类）。"""
-    return f"""今天的日期是 {_current_date}。
-
-【任务】从文章中提取可核查的声明，分为两类：
-
-【声明类型】
-- fact（事实类）：具体数字/人名/事件，可直接搜索核实（如"首月销量330万份"）
-- narrative（叙事类）：文章隐含的结论或论点，需搜索对比数据来挑战（如"本作商业表现在系列中具有突破性"）
-
-【规则】
-- 总计最多5条：fact 最多3条，**narrative 必须有1条，最多2条**
-- **财务/商业数据必须提取为 fact**（销量/票房/收入/回本周期），这类最容易夸大
-- **标题核心结论必须提取**（如"两天回本""330万份"）
-- narrative 提取文章想让读者相信的整体结论或因果解释，不提取纯主观褒贬
-- 每条声明一句话，简洁
-- ⚠️ 输出中若无任何 type="narrative" 的条目，视为提取失败，必须重做
-
-【如何找 narrative】问自己：这篇文章的核心论点是什么？作者想让读者得出什么结论？
-- 标题/结论性陈述 → narrative（如"解决了行业最大痛点""颠覆了传统认知"）
-- 因果归因 → narrative（如"正是因为X设计，才实现了Y结果"）
-- 比较优越性 → narrative（如"本作表现超越同类作品"）
-
-【输出格式】只输出以下 JSON，不输出任何其他内容：
-{{"claims": [{{"text": "声明1", "type": "fact"}}, {{"text": "声明2", "type": "narrative"}}]}}
-
-【示例1 — 游戏商业报道】
-输入：首月全球销量突破500万份，发售周末即回本，创新战斗系统彻底颠覆了ARPG的设计范式
-输出：{{"claims": [
-  {{"text": "首月全球销量突破500万份", "type": "fact"}},
-  {{"text": "游戏发售周末即收回全部开发成本", "type": "fact"}},
-  {{"text": "创新战斗系统彻底颠覆了ARPG的设计范式，是本作成功的核心原因", "type": "narrative"}}
-]}}
-
-【示例2 — AI产品报道】
-输入：该模型在MMLU上得分92%，推理速度比GPT-4快3倍，正在重塑AI行业格局
-输出：{{"claims": [
-  {{"text": "该模型在MMLU基准测试中得分92%", "type": "fact"}},
-  {{"text": "推理速度比GPT-4快3倍", "type": "fact"}},
-  {{"text": "该模型正在重塑AI行业格局，具有颠覆性地位", "type": "narrative"}}
-]}}
-
-【示例3 — 财经报道】
-输入：公司季度营收50亿，净利润翻倍，成为行业绝对龙头
-输出：{{"claims": [
-  {{"text": "公司本季度营收50亿元", "type": "fact"}},
-  {{"text": "净利润同比翻倍", "type": "fact"}},
-  {{"text": "公司已成为行业绝对龙头，领先优势不可撼动", "type": "narrative"}}
-]}}
-
-【❌ 错误示例（全是fact，缺narrative，不可接受）】
-输入：首月销量破500万，发售周末回本，彻底颠覆了行业格局
-❌错误输出：{{"claims": [{{"text": "销量500万", "type": "fact"}}, {{"text": "发售周末回本", "type": "fact"}}]}}
-原因：没有提取文章的核心叙事论点（"彻底颠覆了行业格局"）"""
+from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER
 
 
 def get_claim_verify_prompt() -> str:
@@ -118,25 +62,6 @@ def get_claim_verify_prompt() -> str:
   "best_source_type": "primary/independent/syndicated/self_reported/none",
   "note": "搜索过程和判断依据（100字以上）",
   "sources": [{{"url": "https://...", "title": "页面标题"}}]}}"""
-
-
-def get_reflect_prompt() -> str:
-    """分阶段鉴定 Stage 2.5：判断是否需要追加核查。"""
-    return """审查文章和已完成的声明核查结果，判断是否有关键方面遗漏。
-
-如存在以下情况，输出需要追加核查的声明：
-- 文章核心数据未被涵盖（如关键销量、金额、评分数字）
-- 某条声明因搜索方向偏差导致结论不可信
-- 标题的核心逻辑前提未被核查
-
-禁止追加以下类型的声明（属于背景信息，不是文章核心声明）：
-- 某人是否出席/参加了某场活动（如"某人在GDC发表了演讲"）
-- 作品的发行日期、平台等基础背景事实
-- 某人的职位/身份是否属实（除非文章核心结论依赖于该身份造假）
-
-输出 JSON：{"additional_claims": ["追加声明1", ...]}
-若无需追加：{"additional_claims": []}
-追加声明最多2条，不得重复已有声明。声明必须是文章中的具体事实性陈述（如"销量X万份"），禁止输出"核查XXX"/"验证XXX"等元描述。"""
 
 
 def get_title_logic_prompt() -> str:
