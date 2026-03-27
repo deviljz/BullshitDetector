@@ -62,23 +62,37 @@ def _fetch_with_playwright(url: str) -> str:
         _log.warning("_fetch_with_playwright: playwright 未安装，降级为 requests")
         return ""
     try:
+        from playwright_stealth import Stealth
+        has_stealth = True
+    except ImportError:
+        has_stealth = False
+
+    try:
+        from urllib.parse import urlparse
+        origin = f"{urlparse(url).scheme}://{urlparse(url).netloc}"
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
             ctx = browser.new_context(
                 user_agent=_BROWSER_HEADERS["User-Agent"],
                 locale="zh-CN",
+                viewport={"width": 1280, "height": 800},
             )
+            if has_stealth:
+                Stealth().apply_stealth_sync(ctx)
             page = ctx.new_page()
-            page.goto(url, wait_until="domcontentloaded", timeout=25000)
-            page.wait_for_timeout(2000)  # 等 JS 渲染/WAF 挑战完成
-            page_html = page.content()
+            # 先访问首页建立 cookie，再请求目标页（绕过部分 WAF 跳转检测）
+            page.goto(origin, wait_until="networkidle", timeout=20000)
+            page.wait_for_timeout(1500)
+            page.goto(url, wait_until="networkidle", timeout=25000)
+            page.wait_for_timeout(2000)
+            title = page.title()
+            # 若仍在验证页则放弃
+            if "验证" in title or len(page.inner_text("body")) < 200:
+                browser.close()
+                return ""
+            body_text = page.inner_text("body")
             browser.close()
 
-        doc = Document(page_html)
-        title = doc.title() or ""
-        body_html = doc.summary()
-        body_text = re.sub(r"<[^>]+>", " ", body_html)
-        body_text = html.unescape(body_text)
         body_text = re.sub(r"\s+", " ", body_text).strip()
         return f"{title}\n\n{body_text}" if title else body_text
     except Exception as e:
