@@ -551,14 +551,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                                          "content": json.dumps(clean, ensure_ascii=False)})
 
                 # Run other tools (analyze_title_logic, analyze_hype)
+                # For image-only inputs text is "", fall back to concatenated claims as context
+                _ctx_text = text or " | ".join(r.get("claim", "") for r in all_verify_results)
                 for tc in other_tcs:
                     name = tc.function.name
                     if name == "analyze_title_logic":
-                        title_logic = self._check_title_logic(text, all_verify_results, _dbg["stages"])
+                        title_logic = self._check_title_logic(_ctx_text, all_verify_results, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(title_logic, ensure_ascii=False)})
                     elif name == "analyze_hype":
-                        hype_check = self._check_hype(text, _dbg["stages"])
+                        hype_check = self._check_hype(_ctx_text, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(hype_check, ensure_ascii=False)})
 
