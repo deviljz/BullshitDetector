@@ -523,15 +523,6 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                     else:
                         other_tcs.append(tc)
 
-                # submit_verdict terminates the loop
-                if submit_tc:
-                    try:
-                        submit_args = json.loads(submit_tc.function.arguments)
-                    except Exception:
-                        submit_args = {}
-                    messages.append({"role": "tool", "tool_call_id": submit_tc.id, "content": '{"status": "ok"}'})
-                    break
-
                 # Run verify_claims in parallel
                 if verify_tcs:
                     try:
@@ -570,6 +561,16 @@ class OpenAICompatibleProvider(BaseLLMProvider):
                         hype_check = self._check_hype(text, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(hype_check, ensure_ascii=False)})
+
+                # submit_verdict terminates the loop (checked AFTER other tools so same-round
+                # analyze_title_logic / analyze_hype calls are executed first)
+                if submit_tc:
+                    try:
+                        submit_args = json.loads(submit_tc.function.arguments)
+                    except Exception:
+                        submit_args = {}
+                    messages.append({"role": "tool", "tool_call_id": submit_tc.id, "content": '{"status": "ok"}'})
+                    break
 
                 # Switch system prompt to Re-planner after first round
                 if is_planner:
