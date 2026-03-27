@@ -129,7 +129,7 @@ class _PlanExecuteMixin:
             messages=[
                 {"role": "system", "content": get_title_logic_prompt()},
                 {"role": "user", "content": [{"type": "text", "text":
-                    f"文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+                    f"今天日期：{__import__('datetime').date.today().strftime('%Y年%m月%d日')}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
             ],
             max_tokens=500,
             **_NO_THINKING,
@@ -152,7 +152,7 @@ class _PlanExecuteMixin:
             model=self._model,
             messages=[
                 {"role": "system", "content": get_hype_check_prompt()},
-                {"role": "user", "content": [{"type": "text", "text": f"文章内容：{article_text[:1500]}"}]},
+                {"role": "user", "content": [{"type": "text", "text": f"今天日期：{__import__('datetime').date.today().strftime('%Y年%m月%d日')}\n\n文章内容：{article_text[:1500]}"}]},
             ],
             max_tokens=300,
             **_NO_THINKING,
