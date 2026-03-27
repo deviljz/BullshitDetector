@@ -330,6 +330,126 @@ class OpenAICompatibleProvider(BaseLLMProvider):
     # ── 分阶段鉴定（staged analysis） ─────────────────────────────────────────
 
     _CLAIM_VERIFY_RETRY = "请根据搜索结果，输出该声明的核查结论 JSON。"
+
+    def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
+                      trace: list | None = None) -> dict:
+        """Stage 2: Independent verification of one claim (fresh context, no images)."""
+        if isinstance(claim, dict):
+            claim_text = claim.get("text", "")
+            claim_type = claim.get("type", "fact")
+        else:
+            claim_text = claim
+            claim_type = "fact"
+        user_text = f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim_text}"
+        if claim_type == "narrative":
+            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点/因果解释），此类声明通常难以直接证伪。请搜索是否有具体反驳证据；若搜不到直接矛盾，应判'? 无法核实'。"
+        messages = [
+            {"role": "system", "content": get_claim_verify_prompt()},
+            {"role": "user", "content": [{"type": "text", "text": user_text}]},
+        ]
+        content, search_log, tokens = self._tool_loop(
+            messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
+            max_rounds=3, query_cache=query_cache,
+            trace=trace, stage_name=f"verify: {claim_text[:40]}",
+            temperature=0, extra_create_kwargs={"reasoning_effort": "low"},
+        )
+        try:
+            result = parse_json(content)
+            if isinstance(result, list) and result:
+                result = result[0]
+            if not isinstance(result, dict):
+                raise ValueError("not a dict")
+        except Exception:
+            result = {"verdict": "? 无法核实", "effective_sources": 0,
+                      "best_source_type": "none", "note": "核查解析失败", "sources": []}
+        # Hard enforcement: no sources → cannot be ✗ 伪造
+        if result.get("verdict") == "✗ 伪造" and result.get("effective_sources", 0) == 0:
+            result["verdict"] = "? 无法核实"
+            result["note"] = result.get("note", "") + " [effective_sources=0，自动改判为无法核实]"
+        result["claim"] = claim_text
+        result["claim_type"] = claim_type
+        result["_search_log"] = search_log
+        result["_tokens"] = tokens
+        return result
+
+    @staticmethod
+    def _calculate_bi(claim_results: list[dict], title_logic: dict, hype: dict) -> tuple[int, str]:
+        """Deterministic bi calculation from structured inputs."""
+        fake = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
+        unverified = sum(1 for c in claim_results if "?" in c.get("verdict", ""))
+        narrative_true = sum(1 for c in claim_results
+                             if c.get("claim_type") == "narrative" and "✓" in c.get("verdict", ""))
+        if fake >= 2:
+            bi = 76
+        elif fake == 1:
+            bi = 56
+        elif unverified > 0:
+            bi = 31
+        else:
+            bi = 15
+        bi += 5 * max(0, fake - 2)
+        bi += 2 * unverified
+        bi += 10 * narrative_true
+        if "有问题" in (title_logic.get("verdict") or ""):
+            bi += 10
+        if "有夸大" in (hype.get("verdict") or ""):
+            bi += 10 if hype.get("type") == "第三方估算当事实" else 5
+        bi = min(bi, 100)
+        risk = ("🚨 极度危险" if bi > 80 else
+                "🔶 高度警惕" if bi > 55 else
+                "⚠️ 有所存疑" if bi > 30 else
+                "✅ 基本可信")
+        return bi, risk
+
+    def _check_title_logic(self, article_text: str, claim_results: list[dict],
+                            trace: list | None = None) -> dict:
+        """Stage 3a: Title logic check (no tools)."""
+        clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
+        _t0 = time.monotonic()
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_title_logic_prompt()},
+                {"role": "user", "content": [{"type": "text", "text":
+                    f"文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+            ],
+            max_tokens=500,
+            **_NO_THINKING,
+        )
+        raw = resp.choices[0].message.content or ""
+        if trace is not None:
+            trace.append({"name": "title_logic_check", "response": raw[:200],
+                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
+                                     "output": resp.usage.completion_tokens if resp.usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        try:
+            return parse_json(raw) or {"verdict": "无问题", "reason": ""}
+        except Exception:
+            return {"verdict": "无问题", "reason": ""}
+
+    def _check_hype(self, article_text: str, trace: list | None = None) -> dict:
+        """Stage 3b: Hype/exaggeration check (no tools)."""
+        _t0 = time.monotonic()
+        resp = self._create_with_retry(
+            model=self._model,
+            messages=[
+                {"role": "system", "content": get_hype_check_prompt()},
+                {"role": "user", "content": [{"type": "text", "text": f"文章内容：{article_text[:1500]}"}]},
+            ],
+            max_tokens=300,
+            **_NO_THINKING,
+        )
+        raw = resp.choices[0].message.content or ""
+        if trace is not None:
+            trace.append({"name": "hype_check", "response": raw[:200],
+                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
+                                     "output": resp.usage.completion_tokens if resp.usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        try:
+            return parse_json(raw) or {"verdict": "无夸大", "type": "无", "reason": ""}
+        except Exception:
+            return {"verdict": "无夸大", "type": "无", "reason": ""}
+
     def analyze_article_plan_execute(self, text: str, images: list[str] | None = None) -> tuple[dict, dict]:
         """Plan-and-Execute analysis pipeline.
         Planner → parallel verify_claim Executor → Re-planner (max 2 rounds) → submit_verdict → Python bi.
