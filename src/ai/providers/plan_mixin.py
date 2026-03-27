@@ -185,6 +185,7 @@ class _PlanExecuteMixin:
             total = {"input_tokens": 0, "output_tokens": 0}
             query_cache: dict = {}
             all_verify_results: list[dict] = []
+            all_search_log: list[dict] = []
             title_logic: dict = {}
             hype_check: dict = {}
             submit_args: dict | None = None
@@ -257,13 +258,14 @@ class _PlanExecuteMixin:
                         claim_obj = {"text": args.get("claim", ""), "type": args.get("claim_type", "fact")}
                         result = self._verify_claim(claim_obj, _text, _cache, _stages)
                         tokens = result.pop("_tokens", {})
-                        result.pop("_search_log", None)
-                        return tc, result, tokens
+                        slog = result.pop("_search_log", []) or []
+                        return tc, result, tokens, slog
 
                     with ThreadPoolExecutor(max_workers=min(len(verify_tcs), max_workers)) as ex:
                         verify_outcomes = list(ex.map(_run_verify, verify_tcs))
 
-                    for tc, result, tokens in verify_outcomes:
+                    for tc, result, tokens, slog in verify_outcomes:
+                        all_search_log.extend(slog)
                         all_verify_results.append(result)
                         total["input_tokens"] += tokens.get("input_tokens", 0)
                         total["output_tokens"] += tokens.get("output_tokens", 0)
@@ -355,7 +357,7 @@ class _PlanExecuteMixin:
                 "radar_chart": radar,
                 "flaw_list": [],
             })
-            result["_search_log"] = []
+            result["_search_log"] = all_search_log
             result["_token_usage"] = total
             result["_path"] = "plan_execute"
             result["_mode"] = "analyze"
