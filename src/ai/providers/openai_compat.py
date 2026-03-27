@@ -55,7 +55,7 @@ def _error_result(error_msg: str) -> dict:
     }
 
 
-class OpenAICompatibleProvider(BaseLLMProvider, _ClassicMixin, _PlanExecuteMixin):
+class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider):
     """Universal provider for OpenAI-compatible APIs."""
 
     def __init__(self, api_key: str, base_url: str | None = None, model: str = "gemini-2.0-flash", tone: str = "toxic"):
