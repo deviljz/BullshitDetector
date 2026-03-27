@@ -44,12 +44,61 @@ def _extract_wechat(html_text: str) -> str:
         return ""
 
 
+# 需要用真实浏览器（Playwright）才能通过 WAF 的域名
+_PLAYWRIGHT_DOMAINS = (
+    "xueqiu.com",
+    "weibo.com",
+    "zhihu.com",
+    "36kr.com",
+    "sspai.com",
+)
+
+
+def _fetch_with_playwright(url: str) -> str:
+    """用 Playwright 无头浏览器抓取页面正文，能通过 JS WAF 挑战。"""
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        _log.warning("_fetch_with_playwright: playwright 未安装，降级为 requests")
+        return ""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            ctx = browser.new_context(
+                user_agent=_BROWSER_HEADERS["User-Agent"],
+                locale="zh-CN",
+            )
+            page = ctx.new_page()
+            page.goto(url, wait_until="domcontentloaded", timeout=25000)
+            page.wait_for_timeout(2000)  # 等 JS 渲染/WAF 挑战完成
+            page_html = page.content()
+            browser.close()
+
+        doc = Document(page_html)
+        title = doc.title() or ""
+        body_html = doc.summary()
+        body_text = re.sub(r"<[^>]+>", " ", body_html)
+        body_text = html.unescape(body_text)
+        body_text = re.sub(r"\s+", " ", body_text).strip()
+        return f"{title}\n\n{body_text}" if title else body_text
+    except Exception as e:
+        _log.warning("_fetch_with_playwright 失败: %s", e)
+        return ""
+
+
 def fetch_article(url: str) -> str:
     """
     拉取网页正文，返回纯文本（标题 + 正文）。
+    WAF 保护域名走 Playwright，其余走 requests。
     失败时直接返回原始 url 字符串（让模型自己搜索）。
     """
     try:
+        # WAF 保护域名 → Playwright
+        if any(d in url for d in _PLAYWRIGHT_DOMAINS):
+            text = _fetch_with_playwright(url)
+            if text:
+                return text
+
         resp = requests.get(url, timeout=15, headers=_BROWSER_HEADERS)
         resp.raise_for_status()
         resp.encoding = resp.apparent_encoding or "utf-8"
