@@ -31,6 +31,13 @@ class BullshitDetectorApp:
     def __init__(self):
         self.app = QApplication(sys.argv)
         self.app.setQuitOnLastWindowClosed(False)
+        # WA_TranslucentBackground 窗口会把透明度"传染"给子弹出 QMenu，
+        # 导致右键复制菜单背景几乎全透明。显式给 QMenu 设实色背景修复。
+        self.app.setStyleSheet(
+            "QMenu { background-color: #1e1e2e; color: #cdd6f4; border: 1px solid #45475a; }"
+            "QMenu::item:selected { background-color: #313244; }"
+            "QMenu::separator { background: #45475a; height: 1px; margin: 2px 6px; }"
+        )
         self.signals = SignalBridge()
         self.signals.trigger_capture.connect(self._start_capture)
         self.signals.trigger_unified.connect(self._start_unified_input)
