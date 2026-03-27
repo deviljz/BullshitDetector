@@ -571,9 +571,25 @@ class ResultWindow(QWidget):
             right_col.addWidget(radar_sec)
 
         # ── 右列：侦查报告（默认折叠）──────────────────────────────────────────
+        def _fmt_report_val(v) -> str:
+            """Handle both legacy string fields and new plan_execute dict fields."""
+            if not v:
+                return ""
+            if isinstance(v, dict):
+                verdict = v.get("verdict", "")
+                reason = v.get("reason", "")
+                typ = v.get("type", "")
+                parts = [verdict]
+                if typ and typ not in ("无", ""):
+                    parts.append(f"（{typ}）")
+                if reason:
+                    parts.append(f"：{reason}")
+                return "".join(parts)
+            return str(v)
+
         _ALL_REPORT_KEYS = ("content_nature", "source_origin", "time_check", "entity_check",
                             "physics_check", "source_independence_note", "hype_check",
-                            "missing_info", "intent_check")
+                            "title_logic_check", "missing_info", "intent_check")
         if any(report.get(k, "") for k in _ALL_REPORT_KEYS):
             inv_sec = CollapsibleSection("侦查报告", collapsed=False)
             _REPORT_LABELS = [
@@ -583,12 +599,13 @@ class ResultWindow(QWidget):
                 ("entity_check",            "实体核查", "#f9e2af"),
                 ("physics_check",           "常识核查", "#f9e2af"),
                 ("source_independence_note","信源独立性", "#a6e3a1"),
+                ("title_logic_check",       "标题逻辑", "#ffb86c"),
                 ("hype_check",              "夸大检测", "#ffb86c"),
                 ("missing_info",            "遗漏信息", "#ffb86c"),
                 ("intent_check",            "意图检测", "#ffb86c"),
             ]
             for key, label, color in _REPORT_LABELS:
-                val = report.get(key, "")
+                val = _fmt_report_val(report.get(key, ""))
                 if val and val != "未核查":
                     inv_sec.add_line(f"[{label}] {val}", color)
             right_col.addWidget(inv_sec)

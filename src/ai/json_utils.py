@@ -120,11 +120,14 @@ def normalize_result(result: dict) -> dict:
     header.setdefault("risk_level", _risk_level(bs))
     header.setdefault("verdict", "无法判断")
 
+    # Only fill radar defaults if the model actually returned radar data.
+    # plan_execute path returns empty {}, leave it empty so the UI skips rendering.
     radar = result.setdefault("radar_chart", {})
-    radar.setdefault("logic_consistency", 3)
-    radar.setdefault("source_authority", 3)
-    radar.setdefault("agitation_level", 3)
-    radar.setdefault("search_match", 3)
+    if radar:
+        radar.setdefault("logic_consistency", 3)
+        radar.setdefault("source_authority", 3)
+        radar.setdefault("agitation_level", 3)
+        radar.setdefault("search_match", 3)
 
     report = result.setdefault("investigation_report", {})
     report.setdefault("content_nature", "")
