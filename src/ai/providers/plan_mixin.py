@@ -12,6 +12,7 @@ from ai.prompts import (
     get_claim_verify_prompt, get_title_logic_prompt, get_hype_check_prompt,
     get_planner_prompt, get_replanner_prompt,
 )
+from ai.prompts.shared import _current_date
 from ai.json_utils import parse_json, normalize_result
 from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS
 
@@ -129,7 +130,7 @@ class _PlanExecuteMixin:
             messages=[
                 {"role": "system", "content": get_title_logic_prompt()},
                 {"role": "user", "content": [{"type": "text", "text":
-                    f"今天日期：{__import__('datetime').date.today().strftime('%Y年%m月%d日')}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+                    f"今天日期：{_current_date}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
             ],
             max_tokens=500,
             **_NO_THINKING,
@@ -152,7 +153,7 @@ class _PlanExecuteMixin:
             model=self._model,
             messages=[
                 {"role": "system", "content": get_hype_check_prompt()},
-                {"role": "user", "content": [{"type": "text", "text": f"今天日期：{__import__('datetime').date.today().strftime('%Y年%m月%d日')}\n\n文章内容：{article_text[:1500]}"}]},
+                {"role": "user", "content": [{"type": "text", "text": f"今天日期：{_current_date}\n\n文章内容：{article_text[:1500]}"}]},
             ],
             max_tokens=300,
             **_NO_THINKING,

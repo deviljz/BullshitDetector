@@ -1,6 +1,12 @@
 from datetime import date
 
-_current_date = date.today().strftime("%Y-%m-%d")
+
+class _LazyDate:
+    def __str__(self): return date.today().strftime("%Y-%m-%d")
+    def __format__(self, spec): return date.today().strftime("%Y-%m-%d")
+
+
+_current_date = _LazyDate()
 
 # 各风格的差异化配置，仅影响表达方式，不影响核查逻辑
 _TONE_CONFIGS: dict[str, dict[str, str]] = {

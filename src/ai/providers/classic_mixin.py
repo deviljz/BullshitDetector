@@ -395,7 +395,7 @@ class _ClassicMixin:
     # ── 追问 ──────────────────────────────────────────────────────────────────
 
     def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> tuple[str, dict]:
-        """Plain-text follow-up conversation with optional web_search. Returns (response, token_dict)."""
+        """Plain-text follow-up conversation (no tools). Returns (response, token_dict)."""
         messages = [
             {"role": "system", "content": get_follow_up_prompt(mode)},
             {"role": "user", "content": f"【分析背景】\n{context_text}"},
@@ -406,9 +406,15 @@ class _ClassicMixin:
             messages.append({"role": "assistant", "content": turn["ai"]})
         messages.append({"role": "user", "content": question})
         try:
-            content, _, raw = self._tool_loop(messages, 4096, force_first_tool=False)
-            text = content or "（无回复）"
-            token_dict = {"model": self._model, "input": raw["input_tokens"], "output": raw["output_tokens"]}
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=messages,
+                max_tokens=4096,
+            )
+            tin = resp.usage.prompt_tokens if resp.usage else 0
+            tout = resp.usage.completion_tokens if resp.usage else 0
+            text = resp.choices[0].message.content or "（无回复）"
+            token_dict = {"model": self._model, "input": tin, "output": tout}
             return text, token_dict
         except Exception as e:
             return f"追问失败：{type(e).__name__}: {e}", self._zero_tokens()

@@ -11,6 +11,7 @@ def get_follow_up_prompt(mode: str) -> str:
     }
     context_desc = _MODE_ZH.get(mode, "内容分析")
     return (
+        f"今天日期：{_current_date}。\n"
         f"你正在帮用户对一份「{context_desc}」结果进行追问对话。\n"
         "用户的第一条消息包含了原始分析背景，后续是追问问题。请直接回答，要求：\n"
         "1. 用中文回答\n"
