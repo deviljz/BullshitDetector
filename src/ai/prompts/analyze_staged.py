@@ -1,4 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER
+from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _BULLSHIT_NATURE_RULE
 
 
 def get_claim_verify_prompt() -> str:
@@ -129,6 +129,8 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
 ---
 
 ## 输出格式
+
+{_BULLSHIT_NATURE_RULE}
 
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 

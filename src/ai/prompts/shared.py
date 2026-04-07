@@ -86,6 +86,16 @@ _BI_CONSISTENCY_RULE = """\
    **【标题党额外加分】**：若 title_logic_check 判定标题存在因果谬误（将相关性伪装成因果）或严重夸大（"天才""最大痛点""彻底解决"等绝对化表述），bullshit_index **额外 +10**（即使所有 claim 均为 ✓，标题误导读者本身就是一种扯淡）。\
 """
 
+_BULLSHIT_NATURE_RULE = """\
+**⚠️ bullshit_nature 必填**：根据核查结论，从下列六项中选一个最贴切的标签填入 header.bullshit_nature，禁止留空：
+- 事实错误：核心内容经核查为假（claim 中有 ✗ 伪造）
+- 夸大渲染：事实存在但被严重放大或煽情化（core fact ✓ 但 hype_check 有问题）
+- 真实但离谱：内容属实，但事情本身荒诞（全部 ✓，BI 低，但内容令人咋舌）
+- 标题党：标题与正文严重不符或存在因果谬误（title_logic_check 有问题）
+- 断章取义：引用/截图脱离原始语境（存在明显语境剥离）
+- 逻辑混乱：推理链有硬伤，结论不能成立（logic_consistency 低）\
+"""
+
 _NARRATIVE_CAVEATS_RULE = """\
    **【narrative 强制】**：若 claim_verification 中存在 claim_type="narrative" 的条目，caveats **必须包含至少1条**针对该叙事论点的质疑（如"该论点省略了X对比数据""将相关性解读为因果"），不得为空数组。\
 """

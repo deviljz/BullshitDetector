@@ -1,4 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF, _BI_CONSISTENCY_RULE, _RETROCOST_CHECK, _NARRATIVE_CAVEATS_RULE
+from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF, _BI_CONSISTENCY_RULE, _RETROCOST_CHECK, _NARRATIVE_CAVEATS_RULE, _BULLSHIT_NATURE_RULE
 
 
 def get_system_prompt(tone: str = "toxic") -> str:
@@ -126,6 +126,8 @@ def _build_prompt(t: dict) -> str:
 ## 输出格式
 
 {_RISK_LEVEL_RULE}
+
+{_BULLSHIT_NATURE_RULE}
 
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 
@@ -263,6 +265,8 @@ def _build_article_prompt(t: dict) -> str:
 ## 输出格式
 
 {_RISK_LEVEL_RULE}
+
+{_BULLSHIT_NATURE_RULE}
 
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
 
