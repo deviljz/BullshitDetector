@@ -207,6 +207,7 @@ class CollapsibleSection(QWidget):
         lbl.setWordWrap(True)
         lbl.setTextFormat(Qt.TextFormat.RichText)
         lbl.setOpenExternalLinks(True)
+        lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
         lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
         self._content_layout.addWidget(lbl)
 
@@ -553,6 +554,7 @@ class ResultWindow(QWidget):
                     link_lbl = QLabel(f'    <a href="{src_url}" style="color:#89b4fa;">🔗 {display}</a>')
                     link_lbl.setTextFormat(Qt.TextFormat.RichText)
                     link_lbl.setOpenExternalLinks(True)
+                    link_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
                     link_lbl.setWordWrap(True)
                     link_lbl.setStyleSheet("font-size: 10px; padding: 1px 0;")
                     claim_sec._content_layout.addWidget(link_lbl)
@@ -1301,6 +1303,7 @@ class ResultWindow(QWidget):
                     url_lbl = QLabel(f'原帖：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
                     url_lbl.setTextFormat(Qt.TextFormat.RichText)
                     url_lbl.setOpenExternalLinks(True)
+                    url_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
                     url_lbl.setWordWrap(True)
                     url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
                     content_layout.addWidget(url_lbl)
@@ -1314,6 +1317,7 @@ class ResultWindow(QWidget):
                     url_lbl = QLabel(f'原始链接：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
                     url_lbl.setTextFormat(Qt.TextFormat.RichText)
                     url_lbl.setOpenExternalLinks(True)
+                    url_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
                     url_lbl.setWordWrap(True)
                     url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
                     content_layout.addWidget(url_lbl)
@@ -1349,6 +1353,7 @@ class ResultWindow(QWidget):
             label.setText(f'<a href="{url}" style="color:#585b70;font-size:10px;text-decoration:none;">🔗 点击查看</a>')
             label.setTextFormat(Qt.TextFormat.RichText)
             label.setOpenExternalLinks(True)
+            label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
             label.setStyleSheet(
                 "border: 1px dashed #313244; border-radius: 4px; background: #0a0a14;"
                 " color: #585b70;"
@@ -1420,6 +1425,7 @@ class ResultWindow(QWidget):
                     cap_lbl.setText(f'<a href="{p_url}" style="color:#89b4fa;text-decoration:none;">参考 {i} 🔗</a>')
                     cap_lbl.setTextFormat(Qt.TextFormat.RichText)
                     cap_lbl.setOpenExternalLinks(True)
+                    cap_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
             row.addWidget(cell)
             ref_labels.append((url, img_lbl))
 
@@ -1443,6 +1449,7 @@ class ResultWindow(QWidget):
                 link_lbl = QLabel(f'<a href="{url}" style="color:#89b4fa; text-decoration:none;">🔗 {display}</a>')
                 link_lbl.setTextFormat(Qt.TextFormat.RichText)
                 link_lbl.setOpenExternalLinks(True)
+                link_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
                 link_lbl.setWordWrap(True)
                 link_lbl.setStyleSheet("font-size: 11px; padding: 1px 0;")
                 layout.addWidget(link_lbl)
