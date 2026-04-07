@@ -145,6 +145,25 @@ class StampWidget(QWidget):
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
 
 
+# ── 整行可点击标签 ────────────────────────────────────────────────────────────
+class ClickableLabel(QLabel):
+    """QLabel whose entire area opens a URL on left-click."""
+    def __init__(self, text: str, url: str, parent=None):
+        super().__init__(text, parent)
+        self._url = url
+        if url:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton and self._url:
+            from PyQt6.QtGui import QDesktopServices
+            from PyQt6.QtCore import QUrl
+            QDesktopServices.openUrl(QUrl(self._url))
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
 # ── 可折叠区块 ─────────────────────────────────────────────────────────────────
 class CollapsibleSection(QWidget):
     def __init__(self, title: str, collapsed: bool = False, max_content_height: int = 0, parent=None):
@@ -209,6 +228,13 @@ class CollapsibleSection(QWidget):
         lbl.setOpenExternalLinks(True)
         lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
         lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._content_layout.addWidget(lbl)
+
+    def add_clickable_line(self, text: str, url: str, color: str = "#89b4fa"):
+        """Add a line that opens url when clicked anywhere on it."""
+        lbl = ClickableLabel(text, url)
+        lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color: {color}; font-size: 12px; padding: 1px 2px;")
         self._content_layout.addWidget(lbl)
 
 
@@ -551,12 +577,9 @@ class ResultWindow(QWidget):
                     if not src_url:
                         continue
                     display = src_title[:50] + ("…" if len(src_title) > 50 else "")
-                    link_lbl = QLabel(f'    <a href="{src_url}" style="color:#89b4fa;">🔗 {display}</a>')
-                    link_lbl.setTextFormat(Qt.TextFormat.RichText)
-                    link_lbl.setOpenExternalLinks(True)
-                    link_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                    link_lbl = ClickableLabel(f"    🔗 {display}", src_url)
                     link_lbl.setWordWrap(True)
-                    link_lbl.setStyleSheet("font-size: 10px; padding: 1px 0;")
+                    link_lbl.setStyleSheet("color: #89b4fa; font-size: 10px; padding: 1px 0;")
                     claim_sec._content_layout.addWidget(link_lbl)
             right_col.addWidget(claim_sec)
 
@@ -633,10 +656,7 @@ class ResultWindow(QWidget):
                     _sl_preview = _sl_preview[:120] + "…"
                 if _sl_query:
                     _q_url = "https://www.google.com/search?q=" + urllib.parse.quote(_sl_query)
-                    _sl_sec.add_link_line(
-                        f'🔍 <a href="{_q_url}" style="color:#89b4fa;text-decoration:none;">{_sl_query}</a>',
-                        "#89b4fa",
-                    )
+                    _sl_sec.add_clickable_line(f"🔍 {_sl_query}", _q_url, "#89b4fa")
                 if _sl_preview:
                     _sl_sec.add_line(f"    → {_sl_preview}", "#585b70")
             right_col.addWidget(_sl_sec)
@@ -1300,12 +1320,9 @@ class ResultWindow(QWidget):
                 _extra_row("发帖时间", post_date)
                 _extra_row("内容摘要", content_summary)
                 if original_url:
-                    url_lbl = QLabel(f'原帖：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
-                    url_lbl.setTextFormat(Qt.TextFormat.RichText)
-                    url_lbl.setOpenExternalLinks(True)
-                    url_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                    url_lbl = ClickableLabel(f"原帖：🔗 {original_url}", original_url)
                     url_lbl.setWordWrap(True)
-                    url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
+                    url_lbl.setStyleSheet("color: #89b4fa; font-size: 12px; padding: 1px 0;")
                     content_layout.addWidget(url_lbl)
             elif subtype == "artwork":
                 artist = self._result.get("artist", "")
@@ -1314,12 +1331,9 @@ class ResultWindow(QWidget):
                 _extra_row("画师", artist)
                 _extra_row("来源平台", source_site)
                 if original_url:
-                    url_lbl = QLabel(f'原始链接：<a href="{original_url}" style="color:#89b4fa;">{original_url}</a>')
-                    url_lbl.setTextFormat(Qt.TextFormat.RichText)
-                    url_lbl.setOpenExternalLinks(True)
-                    url_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                    url_lbl = ClickableLabel(f"原始链接：🔗 {original_url}", original_url)
                     url_lbl.setWordWrap(True)
-                    url_lbl.setStyleSheet("color: #a6adc8; font-size: 12px; padding: 1px 0;")
+                    url_lbl.setStyleSheet("color: #89b4fa; font-size: 12px; padding: 1px 0;")
                     content_layout.addWidget(url_lbl)
 
             # ── note 黄色块 ─────────────────────────────────────────────────────
@@ -1350,10 +1364,10 @@ class ResultWindow(QWidget):
             label.setStyleSheet("border: 1px solid #45475a; border-radius: 4px; background: #0a0a14;")
         else:
             url = label.toolTip()
-            label.setText(f'<a href="{url}" style="color:#585b70;font-size:10px;text-decoration:none;">🔗 点击查看</a>')
-            label.setTextFormat(Qt.TextFormat.RichText)
-            label.setOpenExternalLinks(True)
-            label.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+            label.setText("🔗 点击查看")
+            if url and isinstance(label, ClickableLabel):
+                label._url = url
+                label.setCursor(Qt.CursorShape.PointingHandCursor)
             label.setStyleSheet(
                 "border: 1px dashed #313244; border-radius: 4px; background: #0a0a14;"
                 " color: #585b70;"
@@ -1412,20 +1426,32 @@ class ResultWindow(QWidget):
         # 参考图占位 + 异步加载
         ref_labels = []
         for i, url in enumerate(urls[:3], 1):
-            img_lbl, cap_lbl, cell = _make_cell(
-                f"参考 {i}",
-                "border: 1px solid #45475a; border-radius: 4px; background: #181825; color: #585b70; font-size: 11px;",
-            )
-            img_lbl.setText("加载中…")
-            img_lbl.setToolTip(url)
-            # 如果有对应页面链接，把标题变成可点击链接
+            p_url = ""
             if page_urls and i - 1 < len(page_urls):
-                p_url = page_urls[i - 1].get("url", "") if isinstance(page_urls[i - 1], dict) else str(page_urls[i - 1])
-                if p_url:
-                    cap_lbl.setText(f'<a href="{p_url}" style="color:#89b4fa;text-decoration:none;">参考 {i} 🔗</a>')
-                    cap_lbl.setTextFormat(Qt.TextFormat.RichText)
-                    cap_lbl.setOpenExternalLinks(True)
-                    cap_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                entry = page_urls[i - 1]
+                p_url = entry.get("url", "") if isinstance(entry, dict) else str(entry)
+
+            cell = QWidget()
+            cell.setStyleSheet("background: transparent;")
+            cell_layout = QVBoxLayout(cell)
+            cell_layout.setContentsMargins(0, 0, 0, 0)
+            cell_layout.setSpacing(4)
+
+            img_lbl = ClickableLabel("加载中…", p_url) if p_url else QLabel("加载中…")
+            img_lbl.setFixedSize(160, 120)
+            img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            img_lbl.setStyleSheet(
+                "border: 1px solid #45475a; border-radius: 4px; background: #181825; color: #585b70; font-size: 11px;"
+            )
+            img_lbl.setToolTip(url)
+
+            cap_text = f"参考 {i} 🔗" if p_url else f"参考 {i}"
+            cap_lbl = ClickableLabel(cap_text, p_url) if p_url else QLabel(cap_text)
+            cap_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            cap_lbl.setStyleSheet("color: #89b4fa; font-size: 10px;" if p_url else "color: #6c7086; font-size: 10px;")
+
+            cell_layout.addWidget(img_lbl)
+            cell_layout.addWidget(cap_lbl)
             row.addWidget(cell)
             ref_labels.append((url, img_lbl))
 
@@ -1441,17 +1467,14 @@ class ResultWindow(QWidget):
             links_lbl.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold; padding: 4px 0 2px 0;")
             layout.addWidget(links_lbl)
             for p in page_urls:
-                title = p.get("title") or p.get("url", "")
-                url = p.get("url", "")
-                if not url:
+                p_title = p.get("title") or p.get("url", "")
+                p_url = p.get("url", "")
+                if not p_url:
                     continue
-                display = title if title else url
-                link_lbl = QLabel(f'<a href="{url}" style="color:#89b4fa; text-decoration:none;">🔗 {display}</a>')
-                link_lbl.setTextFormat(Qt.TextFormat.RichText)
-                link_lbl.setOpenExternalLinks(True)
-                link_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.LinksAccessibleByMouse)
+                display = p_title if p_title else p_url
+                link_lbl = ClickableLabel(f"🔗 {display}", p_url)
                 link_lbl.setWordWrap(True)
-                link_lbl.setStyleSheet("font-size: 11px; padding: 1px 0;")
+                link_lbl.setStyleSheet("color: #89b4fa; font-size: 11px; padding: 1px 0;")
                 layout.addWidget(link_lbl)
 
         if not ref_labels:
@@ -1946,10 +1969,7 @@ class ResultWindow(QWidget):
                 preview = preview[:120] + "…"
             if query:
                 q_url = "https://www.google.com/search?q=" + urllib.parse.quote(query)
-                sec.add_link_line(
-                    f'🔍 <a href="{q_url}" style="color:#89b4fa;text-decoration:none;">{query}</a>',
-                    "#89b4fa",
-                )
+                sec.add_clickable_line(f"🔍 {query}", q_url, "#89b4fa")
             if preview:
                 sec.add_line(f"    → {preview}", "#585b70")
         layout.addWidget(sec)
