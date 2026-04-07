@@ -332,6 +332,7 @@ class ResultWindow(QWidget):
         # 新 schema 解包
         header = self._result.get("header", {})
         bs_index = header.get("bullshit_index") or self._result.get("bullshit_index", 50) or 50
+        bullshit_nature = header.get("bullshit_nature", "")
         truth_label = header.get("truth_label", "")
         risk_level = header.get("risk_level", "")
         verdict_text = header.get("verdict", "")
@@ -374,6 +375,23 @@ class ResultWindow(QWidget):
             rl_lbl = QLabel(risk_level)
             rl_lbl.setStyleSheet("color: #cdd6f4; font-size: 13px; font-weight: bold;")
             meta_col.addWidget(rl_lbl)
+        if bullshit_nature:
+            _NATURE_STYLES = {
+                "事实错误":  ("#ff5555", "#3d1a1a"),
+                "夸大渲染":  ("#ffb86c", "#3d2a10"),
+                "真实但离谱": ("#f1fa8c", "#2d2d10"),
+                "标题党":   ("#cba6f7", "#2a1a3d"),
+                "断章取义":  ("#fab387", "#3d2010"),
+                "逻辑混乱":  ("#89b4fa", "#10203d"),
+            }
+            fg, bg = _NATURE_STYLES.get(bullshit_nature, ("#cdd6f4", "#313244"))
+            nature_lbl = QLabel(bullshit_nature)
+            nature_lbl.setStyleSheet(
+                f"color: {fg}; background: {bg}; font-size: 11px; font-weight: bold;"
+                " border-radius: 4px; padding: 2px 8px;"
+            )
+            nature_lbl.setFixedHeight(20)
+            meta_col.addWidget(nature_lbl)
         if truth_label:
             tl_lbl = QLabel(truth_label)
             tl_lbl.setStyleSheet("color: #6c7086; font-size: 11px;")
