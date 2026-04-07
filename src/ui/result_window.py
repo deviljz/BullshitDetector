@@ -1423,21 +1423,16 @@ class ResultWindow(QWidget):
             img_lbl.setToolTip("输入截图")
             row.addWidget(cell)
 
-        # 参考图占位 + 异步加载
+        # 参考图占位 + 异步加载（点击图片直接打开原始图片URL）
         ref_labels = []
         for i, url in enumerate(urls[:3], 1):
-            p_url = ""
-            if page_urls and i - 1 < len(page_urls):
-                entry = page_urls[i - 1]
-                p_url = entry.get("url", "") if isinstance(entry, dict) else str(entry)
-
             cell = QWidget()
             cell.setStyleSheet("background: transparent;")
             cell_layout = QVBoxLayout(cell)
             cell_layout.setContentsMargins(0, 0, 0, 0)
             cell_layout.setSpacing(4)
 
-            img_lbl = ClickableLabel("加载中…", p_url) if p_url else QLabel("加载中…")
+            img_lbl = ClickableLabel("加载中…", url)
             img_lbl.setFixedSize(160, 120)
             img_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
             img_lbl.setStyleSheet(
@@ -1445,10 +1440,9 @@ class ResultWindow(QWidget):
             )
             img_lbl.setToolTip(url)
 
-            cap_text = f"参考 {i} 🔗" if p_url else f"参考 {i}"
-            cap_lbl = ClickableLabel(cap_text, p_url) if p_url else QLabel(cap_text)
+            cap_lbl = ClickableLabel(f"参考 {i} 🔗", url)
             cap_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            cap_lbl.setStyleSheet("color: #89b4fa; font-size: 10px;" if p_url else "color: #6c7086; font-size: 10px;")
+            cap_lbl.setStyleSheet("color: #89b4fa; font-size: 10px;")
 
             cell_layout.addWidget(img_lbl)
             cell_layout.addWidget(cap_lbl)
@@ -1461,7 +1455,7 @@ class ResultWindow(QWidget):
         container.setLayout(row)
         layout.addWidget(container)
 
-        # 来源链接（Vision pagesWithMatchingImages）
+        # 相关来源链接（AI 搜索找到的权威页面）
         if page_urls:
             links_lbl = QLabel("相关来源")
             links_lbl.setStyleSheet("color: #6c7086; font-size: 11px; font-weight: bold; padding: 4px 0 2px 0;")

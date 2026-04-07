@@ -344,9 +344,8 @@ class _ClassicMixin:
             vision_urls = get_last_vision_urls()
             result["reference_image_urls"] = vision_urls if vision_urls else []
             page_urls = get_last_vision_page_urls()
-            if page_urls:
-                result["source_page_urls"] = page_urls
-            elif not result.get("source_page_urls"):
+            result["_vision_page_urls"] = page_urls if page_urls else []
+            if not result.get("source_page_urls"):
                 result["source_page_urls"] = []
             result["_search_log"] = search_log
             result["_token_usage"] = raw_tokens

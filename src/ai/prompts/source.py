@@ -52,14 +52,16 @@ _JSON_TAIL = (
     '  "confidence": "high/medium/low",\n'
     '  "note": "搜索过程完整记录：每次搜索关键词、找到什么、如何确认作品身份（100字以上）",\n'
     '  "reference_image_urls": [],\n'
-    '  "source_page_urls": [{"title": "页面标题", "url": "https://..."}],\n'
+    '  "source_page_urls": [{"title": "维基/官方/媒体页面标题", "url": "https://..."}],\n'
     '  "_search_log": []\n'
     '}'
 )
 
 _FOUND_FALSE_NOTE = (
     'found=false 时其余字段均留空，confidence="low"，'
-    'scene 描述图中实际内容，note 说明搜了什么、为何无法识别。'
+    'scene 描述图中实际内容，note 说明搜了什么、为何无法识别。\n'
+    'source_page_urls 填搜索过程中找到的最相关权威页面（维基百科、官方数据库、知名媒体报道等），'
+    '最多5条，不要填图片搜索结果页或无关来源。'
 )
 
 
