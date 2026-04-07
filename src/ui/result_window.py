@@ -1,5 +1,6 @@
 import math
 import threading
+import urllib.parse
 from urllib.request import urlopen, Request as URLRequest
 
 from PyQt6.QtWidgets import (
@@ -197,6 +198,15 @@ class CollapsibleSection(QWidget):
     def add_line(self, text: str, color: str = "#a6adc8"):
         lbl = QLabel(text)
         lbl.setWordWrap(True)
+        lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._content_layout.addWidget(lbl)
+
+    def add_link_line(self, html: str, color: str = "#a6adc8"):
+        """Add a line with RichText / clickable links."""
+        lbl = QLabel(html)
+        lbl.setWordWrap(True)
+        lbl.setTextFormat(Qt.TextFormat.RichText)
+        lbl.setOpenExternalLinks(True)
         lbl.setStyleSheet(f"color: {color}; font-size: 12px;")
         self._content_layout.addWidget(lbl)
 
@@ -619,7 +629,12 @@ class ResultWindow(QWidget):
                 _sl_preview = _sl_entry.get("result_preview", "").strip()
                 if len(_sl_preview) > 120:
                     _sl_preview = _sl_preview[:120] + "…"
-                _sl_sec.add_line(f"🔍 {_sl_query}", "#89b4fa")
+                if _sl_query:
+                    _q_url = "https://www.google.com/search?q=" + urllib.parse.quote(_sl_query)
+                    _sl_sec.add_link_line(
+                        f'🔍 <a href="{_q_url}" style="color:#89b4fa;text-decoration:none;">{_sl_query}</a>',
+                        "#89b4fa",
+                    )
                 if _sl_preview:
                     _sl_sec.add_line(f"    → {_sl_preview}", "#585b70")
             right_col.addWidget(_sl_sec)
@@ -1357,7 +1372,7 @@ class ResultWindow(QWidget):
         row.setContentsMargins(0, 0, 0, 0)
 
         def _make_cell(caption: str, border_style: str) -> tuple:
-            """Returns (img_label, cell_widget)."""
+            """Returns (img_label, cap_label, cell_widget)."""
             cell = QWidget()
             cell.setStyleSheet("background: transparent;")
             cell_layout = QVBoxLayout(cell)
@@ -1375,11 +1390,11 @@ class ResultWindow(QWidget):
 
             cell_layout.addWidget(img_lbl)
             cell_layout.addWidget(cap_lbl)
-            return img_lbl, cell
+            return img_lbl, cap_lbl, cell
 
         # 输入截图
         if input_image is not None:
-            img_lbl, cell = _make_cell("原图", "border: 2px solid #fab387; border-radius: 4px; background: #0a0a14;")
+            img_lbl, _, cell = _make_cell("原图", "border: 2px solid #fab387; border-radius: 4px; background: #0a0a14;")
             img = input_image.copy()
             img.thumbnail((160, 120))
             w, h = img.size
@@ -1392,12 +1407,19 @@ class ResultWindow(QWidget):
         # 参考图占位 + 异步加载
         ref_labels = []
         for i, url in enumerate(urls[:3], 1):
-            img_lbl, cell = _make_cell(
+            img_lbl, cap_lbl, cell = _make_cell(
                 f"参考 {i}",
                 "border: 1px solid #45475a; border-radius: 4px; background: #181825; color: #585b70; font-size: 11px;",
             )
             img_lbl.setText("加载中…")
             img_lbl.setToolTip(url)
+            # 如果有对应页面链接，把标题变成可点击链接
+            if page_urls and i - 1 < len(page_urls):
+                p_url = page_urls[i - 1].get("url", "") if isinstance(page_urls[i - 1], dict) else str(page_urls[i - 1])
+                if p_url:
+                    cap_lbl.setText(f'<a href="{p_url}" style="color:#89b4fa;text-decoration:none;">参考 {i} 🔗</a>')
+                    cap_lbl.setTextFormat(Qt.TextFormat.RichText)
+                    cap_lbl.setOpenExternalLinks(True)
             row.addWidget(cell)
             ref_labels.append((url, img_lbl))
 
@@ -1915,7 +1937,12 @@ class ResultWindow(QWidget):
             preview = entry.get("result_preview", "").strip()
             if len(preview) > 120:
                 preview = preview[:120] + "…"
-            sec.add_line(f"🔍 {query}", "#89b4fa")
+            if query:
+                q_url = "https://www.google.com/search?q=" + urllib.parse.quote(query)
+                sec.add_link_line(
+                    f'🔍 <a href="{q_url}" style="color:#89b4fa;text-decoration:none;">{query}</a>',
+                    "#89b4fa",
+                )
             if preview:
                 sec.add_line(f"    → {preview}", "#585b70")
         layout.addWidget(sec)
