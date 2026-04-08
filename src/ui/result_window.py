@@ -115,9 +115,22 @@ class StampWidget(QWidget):
 
     _W, _H = 110, 110
 
-    def __init__(self, bullshit_index: int, parent=None):
+    _NATURE_COLORS = {
+        "事实错误":  "#ff5555",
+        "夸大渲染":  "#ffb86c",
+        "真实但离谱": "#f1fa8c",
+        "标题党":   "#cba6f7",
+        "断章取义":  "#fab387",
+        "逻辑混乱":  "#89b4fa",
+    }
+
+    def __init__(self, bullshit_index: int, bullshit_nature: str = "", parent=None):
         super().__init__(parent)
-        self._color_hex, self._text = _stamp_config(bullshit_index)
+        if bullshit_nature and bullshit_nature in self._NATURE_COLORS:
+            self._color_hex = self._NATURE_COLORS[bullshit_nature]
+            self._text = bullshit_nature
+        else:
+            self._color_hex, self._text = _stamp_config(bullshit_index)
         self.setFixedSize(self._W, self._H)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
@@ -138,8 +151,9 @@ class StampWidget(QWidget):
         painter.setBrush(QBrush(QColor(0, 0, 0, 0)))
         painter.drawRoundedRect(rect, 6, 6)
 
-        # 文字
-        font = QFont("Microsoft YaHei", 16, QFont.Weight.Black)
+        # 文字（长标签自动缩字号）
+        font_size = 13 if len(self._text) >= 5 else 16
+        font = QFont("Microsoft YaHei", font_size, QFont.Weight.Black)
         painter.setFont(font)
         painter.setPen(QPen(color))
         painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, self._text)
@@ -401,7 +415,7 @@ class ResultWindow(QWidget):
 
         top_row.addStretch()
 
-        stamp = StampWidget(bs_index)
+        stamp = StampWidget(bs_index, bullshit_nature)
         top_row.addWidget(stamp, alignment=Qt.AlignmentFlag.AlignTop)
 
         top_row.addWidget(self._make_chat_toggle_btn(), alignment=Qt.AlignmentFlag.AlignTop)

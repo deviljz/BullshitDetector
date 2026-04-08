@@ -35,9 +35,17 @@ _ANALYZE_ARTICLE_RETRY_PROMPT = (
 _SOURCE_RETRY_PROMPT = "请根据以上搜索结果，严格按照系统提示定义的 JSON 格式输出最终识别结果。"
 
 
+_VALID_BULLSHIT_NATURE = {"事实错误", "夸大渲染", "真实但离谱", "标题党", "断章取义", "逻辑混乱"}
+
+
 def _analyze_schema_ok(parsed: dict) -> bool:
     inv = parsed.get("investigation_report", {})
-    return bool(inv.get("content_nature")) and parsed.get("claim_verification") is not None
+    header = parsed.get("header", {})
+    return (
+        bool(inv.get("content_nature"))
+        and parsed.get("claim_verification") is not None
+        and header.get("bullshit_nature") in _VALID_BULLSHIT_NATURE
+    )
 
 
 class _ClassicMixin:

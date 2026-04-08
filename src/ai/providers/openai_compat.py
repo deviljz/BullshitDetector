@@ -33,9 +33,17 @@ MAX_TOOL_ROUNDS = 8  # 并行调用后每轮可发多个请求，8轮足够复�
 _NO_THINKING = {"reasoning_effort": "none"}
 
 
+_VALID_BULLSHIT_NATURE = {"事实错误", "夸大渲染", "真实但离谱", "标题党", "断章取义", "逻辑混乱"}
+
+
 def _analyze_schema_ok(parsed: dict) -> bool:
     inv = parsed.get("investigation_report", {})
-    return bool(inv.get("content_nature")) and parsed.get("claim_verification") is not None
+    header = parsed.get("header", {})
+    return (
+        bool(inv.get("content_nature"))
+        and parsed.get("claim_verification") is not None
+        and header.get("bullshit_nature") in _VALID_BULLSHIT_NATURE
+    )
 
 
 def _error_result(error_msg: str) -> dict:

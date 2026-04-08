@@ -15,9 +15,10 @@ _RESULTS = {
     "analyze": {
         "header": {
             "bullshit_index": 72,
+            "bullshit_nature": "事实错误",
             "truth_label": "高度可疑",
-            "risk_level": "⚠️ 高度存疑",
-            "verdict": "✗ 伪造",
+            "risk_level": "🔶 高度警惕",
+            "verdict": "核心事件搜索无结果，账号信息可疑",
         },
         "radar_chart": {"logic_consistency": 2, "source_authority": 1, "agitation_level": 4, "search_match": 1},
         "investigation_report": {

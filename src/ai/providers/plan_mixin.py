@@ -96,6 +96,21 @@ class _PlanExecuteMixin:
         return bi, risk
 
     @staticmethod
+    def _nature_from_inputs(bi: int, claim_results: list[dict], title_logic: dict, hype: dict) -> str:
+        """Determine bullshit_nature from already-computed plan-execute inputs."""
+        has_fake = any("✗" in c.get("verdict", "") for c in claim_results)
+        has_uncertain = any("?" in c.get("verdict", "") for c in claim_results)
+        if has_fake:
+            return "事实错误"
+        if "有问题" in (title_logic.get("verdict") or ""):
+            return "标题党"
+        if "有夸大" in (hype.get("verdict") or ""):
+            return "夸大渲染"
+        if has_uncertain:
+            return "夸大渲染"
+        return "真实但离谱" if bi <= 20 else "夸大渲染"
+
+    @staticmethod
     def _calculate_radar(claim_results: list[dict], title_logic: dict, hype: dict) -> dict:
         n = max(len(claim_results), 1)
         fake = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
@@ -343,6 +358,7 @@ class _PlanExecuteMixin:
                 "_mode": "analyze",
                 "header": {
                     "bullshit_index": bi,
+                    "bullshit_nature": self._nature_from_inputs(bi, cv, title_logic, hype_check),
                     "risk_level": risk_level,
                     "verdict": submit_args.get("verdict_text", ""),
                     "truth_label": f"{100 - bi}% 属实" if isinstance(bi, int) else "分析中",

@@ -87,13 +87,14 @@ _BI_CONSISTENCY_RULE = """\
 """
 
 _BULLSHIT_NATURE_RULE = """\
-**⚠️ bullshit_nature 必填**：根据核查结论，从下列六项中选一个最贴切的标签填入 header.bullshit_nature，禁止留空：
+**⚠️ bullshit_nature 必填**：根据核查结论，从下列六项中选一个最贴切的标签填入 header.bullshit_nature，禁止留空、禁止填写描述性文字：
 - 事实错误：核心内容经核查为假（claim 中有 ✗ 伪造）
 - 夸大渲染：事实存在但被严重放大或煽情化（core fact ✓ 但 hype_check 有问题）
 - 真实但离谱：内容属实，但事情本身荒诞（全部 ✓，BI 低，但内容令人咋舌）
 - 标题党：标题与正文严重不符或存在因果谬误（title_logic_check 有问题）
 - 断章取义：引用/截图脱离原始语境（存在明显语境剥离）
-- 逻辑混乱：推理链有硬伤，结论不能成立（logic_consistency 低）\
+- 逻辑混乱：推理链有硬伤，结论不能成立（logic_consistency 低）
+**自检**：输出前确认 header.bullshit_nature 的值是以上六项之一的原文，不得是描述或解释文字。\
 """
 
 _NARRATIVE_CAVEATS_RULE = """\
