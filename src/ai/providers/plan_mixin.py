@@ -69,14 +69,22 @@ class _PlanExecuteMixin:
     @staticmethod
     def _calculate_bi(claim_results: list[dict], title_logic: dict, hype: dict) -> tuple[int, str]:
         """Deterministic bi calculation from structured inputs."""
-        fake = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
+        # 核心 fake（直接影响结论）全权重；边角 fake 半权重
+        core_fake = sum(1 for c in claim_results
+                        if "✗" in c.get("verdict", "") and c.get("is_core_claim", True))
+        side_fake = sum(1 for c in claim_results
+                        if "✗" in c.get("verdict", "") and not c.get("is_core_claim", True))
+        fake = core_fake + side_fake  # 总 fake 数（用于后续加分）
+        fake_weight = core_fake + side_fake * 0.5  # 加权 fake 数（决定基础档位）
         unverified = sum(1 for c in claim_results if "?" in c.get("verdict", ""))
         narrative_true = sum(1 for c in claim_results
                              if c.get("claim_type") == "narrative" and "✓" in c.get("verdict", ""))
-        if fake >= 2:
+        if fake_weight >= 2:
             bi = 76
-        elif fake == 1:
+        elif fake_weight >= 1:
             bi = 56
+        elif fake_weight >= 0.5:
+            bi = 40  # 仅边角细节有误，核心结论未动摇
         elif unverified > 0:
             bi = 31
         else:
@@ -96,18 +104,39 @@ class _PlanExecuteMixin:
         return bi, risk
 
     @staticmethod
+    def _text_has_title(text: str) -> bool:
+        """判断文本是否有独立标题行。
+        标题特征：长度 ≤ 50 字，且不以句号/感叹号/问号结尾（否则是正文句子）。
+        """
+        if not text:
+            return False
+        lines = [l.strip() for l in text.split('\n') if l.strip()]
+        if len(lines) < 2:
+            return False
+        first = lines[0]
+        if first.endswith(('。', '！', '？', '.', '!', '?')):
+            return False
+        return len(first) <= 50
+
+    @staticmethod
     def _nature_from_inputs(bi: int, claim_results: list[dict], title_logic: dict, hype: dict) -> str:
         """Determine bullshit_nature from already-computed plan-execute inputs."""
-        has_fake = any("✗" in c.get("verdict", "") for c in claim_results)
+        fake_count = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
+        verified_count = sum(1 for c in claim_results if "✓" in c.get("verdict", ""))
         has_uncertain = any("?" in c.get("verdict", "") for c in claim_results)
-        if has_fake:
-            return "事实错误"
-        if "有问题" in (title_logic.get("verdict") or ""):
+        if fake_count > 0:
+            if verified_count >= 2 * fake_count:
+                return "基本属实"   # 绝大多数属实，仅个别细节有误
+            if verified_count > fake_count:
+                return "局部失实"   # 多处重要声明存疑但核心尚成立
+            return "事实错误"       # 伪造数 >= 已核实数，核心结论不成立
+        tl_verdict = title_logic.get("verdict") or ""
+        if "有问题" in tl_verdict and "无标题" not in tl_verdict:
             return "标题党"
         if "有夸大" in (hype.get("verdict") or ""):
             return "夸大渲染"
         if has_uncertain:
-            return "夸大渲染"
+            return "局部失实"
         return "真实但离谱" if bi <= 20 else "夸大渲染"
 
     @staticmethod
@@ -137,52 +166,68 @@ class _PlanExecuteMixin:
 
     def _check_title_logic(self, article_text: str, claim_results: list[dict],
                             trace: list | None = None) -> dict:
-        """Stage 3a: Title logic check (no tools)."""
+        """Stage 3a: Title logic check (tool_use for reliable structured output)."""
+        from ai.tools import SUBMIT_TITLE_LOGIC_TOOL
         clean = [{k: v for k, v in r.items() if not k.startswith("_")} for r in claim_results]
         _t0 = time.monotonic()
-        resp = self._create_with_retry(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": get_title_logic_prompt()},
-                {"role": "user", "content": [{"type": "text", "text":
-                    f"今天日期：{_current_date}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
-            ],
-            max_tokens=500,
-            **_NO_THINKING,
-        )
-        raw = resp.choices[0].message.content or ""
-        if trace is not None:
-            trace.append({"name": "title_logic_check", "response": raw[:200],
-                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
-                                     "output": resp.usage.completion_tokens if resp.usage else 0},
-                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        resp = None
         try:
-            return parse_json(raw) or {"verdict": "无问题", "reason": ""}
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_title_logic_prompt()},
+                    {"role": "user", "content": [{"type": "text", "text":
+                        f"今天日期：{_current_date}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
+                ],
+                max_tokens=300,
+                tools=[SUBMIT_TITLE_LOGIC_TOOL],
+                tool_choice={"type": "required"},
+                **_NO_THINKING,
+            )
+            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            result = json.loads(tc.function.arguments) if tc else None
         except Exception:
-            return {"verdict": "无问题", "reason": ""}
+            result = None
+        if result is None:
+            result = {"verdict": "无法判断", "reason": "核查失败"}
+        if trace is not None:
+            usage = resp.usage if resp else None
+            trace.append({"name": "title_logic_check", "response": str(result)[:200],
+                          "tokens": {"input": usage.prompt_tokens if usage else 0,
+                                     "output": usage.completion_tokens if usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        return result
 
     def _check_hype(self, article_text: str, trace: list | None = None) -> dict:
-        """Stage 3b: Hype/exaggeration check (no tools)."""
+        """Stage 3b: Hype/exaggeration check (tool_use for reliable structured output)."""
+        from ai.tools import SUBMIT_HYPE_TOOL
         _t0 = time.monotonic()
-        resp = self._create_with_retry(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": get_hype_check_prompt()},
-                {"role": "user", "content": [{"type": "text", "text": f"今天日期：{_current_date}\n\n文章内容：{article_text[:1500]}"}]},
-            ],
-            max_tokens=300,
-            **_NO_THINKING,
-        )
-        raw = resp.choices[0].message.content or ""
-        if trace is not None:
-            trace.append({"name": "hype_check", "response": raw[:200],
-                          "tokens": {"input": resp.usage.prompt_tokens if resp.usage else 0,
-                                     "output": resp.usage.completion_tokens if resp.usage else 0},
-                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        resp = None
         try:
-            return parse_json(raw) or {"verdict": "无夸大", "type": "无", "reason": ""}
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": get_hype_check_prompt()},
+                    {"role": "user", "content": [{"type": "text", "text": f"今天日期：{_current_date}\n\n文章内容：{article_text[:1500]}"}]},
+                ],
+                max_tokens=300,
+                tools=[SUBMIT_HYPE_TOOL],
+                tool_choice={"type": "required"},
+                **_NO_THINKING,
+            )
+            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            result = json.loads(tc.function.arguments) if tc else None
         except Exception:
-            return {"verdict": "无夸大", "type": "无", "reason": ""}
+            result = None
+        if result is None:
+            result = {"verdict": "无法判断", "type": "无", "reason": "核查失败"}
+        if trace is not None:
+            usage = resp.usage if resp else None
+            trace.append({"name": "hype_check", "response": str(result)[:200],
+                          "tokens": {"input": usage.prompt_tokens if usage else 0,
+                                     "output": usage.completion_tokens if usage else 0},
+                          "elapsed_s": round(time.monotonic() - _t0, 2)})
+        return result
 
     def analyze_article_plan_execute(self, text: str, images: list[str] | None = None) -> tuple[dict, dict]:
         """Plan-and-Execute analysis pipeline.
@@ -295,7 +340,11 @@ class _PlanExecuteMixin:
                 for tc in other_tcs:
                     name = tc.function.name
                     if name == "analyze_title_logic":
-                        title_logic = self._check_title_logic(_ctx_text, all_verify_results, _dbg["stages"])
+                        # 若内容无可识别标题（首行超长或仅一行），跳过检查，避免误判标题党
+                        if not self._text_has_title(text):
+                            title_logic = {"verdict": "无标题内容，跳过检查", "reason": "内容无独立标题行"}
+                        else:
+                            title_logic = self._check_title_logic(_ctx_text, all_verify_results, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(title_logic, ensure_ascii=False)})
                     elif name == "analyze_hype":
@@ -354,11 +403,14 @@ class _PlanExecuteMixin:
             bi, risk_level = self._calculate_bi(cv, title_logic, hype_check)
             radar = self._calculate_radar(cv, title_logic, hype_check)
 
+            ai_nature = submit_args.get("bullshit_nature")
+            final_nature = ai_nature if ai_nature else self._nature_from_inputs(bi, cv, title_logic, hype_check)
+
             result = normalize_result({
                 "_mode": "analyze",
                 "header": {
                     "bullshit_index": bi,
-                    "bullshit_nature": self._nature_from_inputs(bi, cv, title_logic, hype_check),
+                    "bullshit_nature": final_nature,
                     "risk_level": risk_level,
                     "verdict": submit_args.get("verdict_text", ""),
                     "truth_label": f"{100 - bi}% 属实" if isinstance(bi, int) else "分析中",
@@ -372,7 +424,7 @@ class _PlanExecuteMixin:
                 "one_line_summary": submit_args.get("one_line_summary", ""),
                 "toxic_review": submit_args.get("toxic_review", ""),
                 "radar_chart": radar,
-                "flaw_list": [],
+                "flaw_list": submit_args.get("flaw_list") or [],
             })
             result["_search_log"] = all_search_log
             result["_token_usage"] = total

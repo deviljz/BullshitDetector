@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
-from PyQt6.QtCore import QObject, pyqtSignal, Qt
+from PyQt6.QtCore import QObject, pyqtSignal, Qt, QTimer
 import keyboard
 
 from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY, TEXT_HOTKEY
@@ -373,6 +373,15 @@ class BullshitDetectorApp:
         self._result_windows.append(win)
         win.show()
 
+    def _reregister_hotkeys(self) -> None:
+        """定期重新注册热键，修复 Windows 锁屏后热键失效问题。"""
+        try:
+            keyboard.unhook_all()
+            keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
+            keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
+        except Exception:
+            logging.warning("热键重注册失败", exc_info=True)
+
     def run(self):
         api_key = get_active_provider_cfg().get("api_key", "")
         if not api_key or api_key.startswith("YOUR_"):
@@ -386,6 +395,11 @@ class BullshitDetectorApp:
 
         keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
         keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
+        # 每 60 秒重注册热键，修复 Windows 锁屏/解锁后热键失效问题
+        self._hotkey_timer = QTimer()
+        self._hotkey_timer.setInterval(60_000)
+        self._hotkey_timer.timeout.connect(self._reregister_hotkeys)
+        self._hotkey_timer.start()
         self._tray.showMessage(
             "BullshitDetector",
             f"{SCREENSHOT_HOTKEY.upper()} 截图  {IMAGE_HOTKEY.upper()} 图片/文字分析",

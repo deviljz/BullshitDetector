@@ -138,7 +138,7 @@ def get_final_verdict_prompt(tone: str = "toxic") -> str:
   "claim_verification": [...从用户消息中原样复制，每个字段一字不改...],
   "header": {{
     "bullshit_index": 从用户消息原样复制的整数,
-    "bullshit_nature": "必填！按上方⚠️规则六选一：事实错误 / 夸大渲染 / 真实但离谱 / 标题党 / 断章取义 / 逻辑混乱",
+    "bullshit_nature": "必填！按上方⚠️规则八选一：事实错误 / 局部失实 / 基本属实 / 夸大渲染 / 真实但离谱 / 标题党 / 断章取义 / 逻辑混乱",
     "truth_label": "生动描述，例如：65% 的硬核技术分享 + 35% 的营销暴论",
     "risk_level": "从用户消息原样复制",
     "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"

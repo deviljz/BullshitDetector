@@ -277,9 +277,10 @@ PLAN_EXECUTE_TOOLS = [
                 "properties": {
                     "claim": {"type": "string", "description": "待核查的声明原文"},
                     "claim_type": {"type": "string", "enum": ["fact", "narrative"], "description": "fact：含具体数字/人名/事件可直接搜索；narrative：因果/评价类隐含论点"},
+                    "is_core_claim": {"type": "boolean", "description": "该声明是否直接支撑文章核心结论？true=核心声明（若为假则核心结论崩塌）；false=边角细节（若为假不影响整体结论）"},
                     "context": {"type": "string", "description": "声明所在文章的标题和核心背景（100字以内）"},
                 },
-                "required": ["claim", "claim_type"],
+                "required": ["claim", "claim_type", "is_core_claim"],
             },
         },
     },
@@ -287,7 +288,7 @@ PLAN_EXECUTE_TOOLS = [
         "type": "function",
         "function": {
             "name": "analyze_title_logic",
-            "description": "检查标题是否存在因果谬误或用无关数据背书核心论点。适用于标题含'因为X所以Y'、'凭借X实现Y'等逻辑链条的文章。简单陈述类标题无需调用。",
+            "description": "检查标题是否存在因果谬误或用无关数据背书核心论点。适用于标题含'因为X所以Y'、'凭借X实现Y'等逻辑链条的文章。简单陈述类标题无需调用。若内容本身没有标题（如纯截图、纯正文），禁止调用此工具。",
             "parameters": {
                 "type": "object",
                 "properties": {},
@@ -323,6 +324,7 @@ PLAN_EXECUTE_TOOLS = [
                             "properties": {
                                 "claim": {"type": "string"},
                                 "claim_type": {"type": "string"},
+                                "is_core_claim": {"type": "boolean"},
                                 "verdict": {"type": "string"},
                                 "effective_sources": {"type": "integer"},
                                 "best_source_type": {"type": "string"},
@@ -343,6 +345,17 @@ PLAN_EXECUTE_TOOLS = [
                     "one_line_summary": {"type": "string", "description": "一句话概括文章核心问题（≤30字）"},
                     "toxic_review": {"type": "string", "description": "鉴屎官风格的辛辣评语（根据文章实际质量，好文章也可以给正面评价）"},
                     "verdict_text": {"type": "string", "description": "最终判决陈述（2-3句话，概括核查发现）"},
+                    "bullshit_nature": {
+                        "type": "string",
+                        "enum": ["事实错误", "局部失实", "基本属实", "夸大渲染",
+                                 "真实但离谱", "标题党", "断章取义", "逻辑混乱"],
+                        "description": "内容性质八选一，参照 claim_verification 结论综合判断",
+                    },
+                    "flaw_list": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "核心破绽列表，每条≤20字，最多5条；确实无破绽则填[]",
+                    },
                 },
                 "required": ["claim_verification", "one_line_summary", "verdict_text"],
             },
@@ -352,6 +365,52 @@ PLAN_EXECUTE_TOOLS = [
 
 # Planner 阶段只能调用 verify_claim（强制提取核查清单）
 PLANNER_TOOLS = [t for t in PLAN_EXECUTE_TOOLS if t["function"]["name"] == "verify_claim"]
+
+# 内部工具：仅在 _check_title_logic / _check_hype 中使用，不暴露给 re-planner
+SUBMIT_TITLE_LOGIC_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_title_logic",
+        "description": "提交标题逻辑核查结果",
+        "parameters": {
+            "type": "object",
+            "required": ["verdict"],
+            "properties": {
+                "verdict": {
+                    "type": "string",
+                    "enum": ["有问题", "无问题"],
+                    "description": "有问题=标题存在因果谬误或严重夸大；无问题=标题与正文一致",
+                },
+                "reason": {"type": "string", "description": "简要说明，≤50字"},
+            },
+        },
+    },
+}
+
+SUBMIT_HYPE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_hype_check",
+        "description": "提交夸大渲染核查结果",
+        "parameters": {
+            "type": "object",
+            "required": ["verdict"],
+            "properties": {
+                "verdict": {
+                    "type": "string",
+                    "enum": ["有夸大", "无夸大"],
+                    "description": "有夸大=核心叙述被夸大渲染；无夸大=表述克制",
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["数字虚报", "程度夸大", "第三方估算当事实", "情绪渲染", "无"],
+                    "description": "夸大类型，无夸大时填'无'",
+                },
+                "reason": {"type": "string", "description": "简要说明，≤50字"},
+            },
+        },
+    },
+}
 
 # 全局搜索实例
 _search_provider = SearchProvider()

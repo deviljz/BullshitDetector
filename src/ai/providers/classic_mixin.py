@@ -35,7 +35,7 @@ _ANALYZE_ARTICLE_RETRY_PROMPT = (
 _SOURCE_RETRY_PROMPT = "请根据以上搜索结果，严格按照系统提示定义的 JSON 格式输出最终识别结果。"
 
 
-_VALID_BULLSHIT_NATURE = {"事实错误", "夸大渲染", "真实但离谱", "标题党", "断章取义", "逻辑混乱"}
+_VALID_BULLSHIT_NATURE = {"事实错误", "局部失实", "基本属实", "夸大渲染", "真实但离谱", "标题党", "断章取义", "逻辑混乱"}
 
 
 def _analyze_schema_ok(parsed: dict) -> bool:

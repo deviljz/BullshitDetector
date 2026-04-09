@@ -117,6 +117,8 @@ class StampWidget(QWidget):
 
     _NATURE_COLORS = {
         "事实错误":  "#ff5555",
+        "局部失实":  "#ff9580",
+        "基本属实":  "#a6e3a1",
         "夸大渲染":  "#ffb86c",
         "真实但离谱": "#f1fa8c",
         "标题党":   "#cba6f7",
@@ -392,6 +394,8 @@ class ResultWindow(QWidget):
         if bullshit_nature:
             _NATURE_STYLES = {
                 "事实错误":  ("#ff5555", "#3d1a1a"),
+                "局部失实":  ("#ff9580", "#3d2218"),
+                "基本属实":  ("#a6e3a1", "#1a3d1a"),
                 "夸大渲染":  ("#ffb86c", "#3d2a10"),
                 "真实但离谱": ("#f1fa8c", "#2d2d10"),
                 "标题党":   ("#cba6f7", "#2a1a3d"),
