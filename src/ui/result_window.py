@@ -347,7 +347,10 @@ class ResultWindow(QWidget):
         """鉴屎模式 UI（原 _init_ui 内联代码）。"""
         # 新 schema 解包
         header = self._result.get("header", {})
-        bs_index = header.get("bullshit_index") or self._result.get("bullshit_index", 50) or 50
+        _bi = header.get("bullshit_index")
+        if _bi is None:
+            _bi = self._result.get("bullshit_index")
+        bs_index = _bi if _bi is not None else 50
         bullshit_nature = header.get("bullshit_nature", "")
         truth_label = header.get("truth_label", "")
         risk_level = header.get("risk_level", "")

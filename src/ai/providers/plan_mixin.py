@@ -528,8 +528,13 @@ class _PlanExecuteMixin:
             if not hype_check and inv.get("hype_check"):
                 hype_check = inv["hype_check"]
 
-            # Deterministic bi calculation
-            cv = submit_args.get("claim_verification", [])
+            # Deterministic bi calculation — always use Python-tracked results (authoritative 4-layer data)
+            cv_python = [
+                {k: v for k, v in r.items() if not k.startswith("_")}
+                for r in all_verify_results
+            ]
+            # Fall back to re-planner's version only if Python has nothing
+            cv = cv_python or submit_args.get("claim_verification", [])
             bi, risk_level = self._calculate_bi(cv, title_logic, hype_check)
             radar = self._calculate_radar(cv, title_logic, hype_check)
 
