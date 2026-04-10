@@ -298,6 +298,10 @@ class BullshitDetectorApp:
                     fn = lambda: analyze_text_staged(text, images or None, session_id=session_id)
                 else:
                     fn = lambda: analyze_text(text, session_id=session_id)
+            # 注入原始文本供 historyCache 存储
+            _captured_text = text
+            _inner_fn = fn
+            fn = lambda _t=_captured_text, _f=_inner_fn: {**_f(), "_input_text": _t}
         def _run():
             try:
                 self.signals.show_result.emit(fn(), None, loading, images)
@@ -322,23 +326,26 @@ class BullshitDetectorApp:
         self._history_window.raise_()
 
     @staticmethod
-    def _make_thumbnail(images) -> str | None:
+    def _make_thumbnails(images) -> list[str]:
+        """返回所有输入图的缩略图 base64 列表（80×80 JPEG）。"""
         if not images:
-            return None
+            return []
+        result_thumbs: list[str] = []
         try:
             import base64
             from io import BytesIO
             from PIL import Image
-            img = images[0]
-            if not isinstance(img, Image.Image):
-                return None
-            thumb = img.copy()
-            thumb.thumbnail((80, 80), Image.LANCZOS)
-            bio = BytesIO()
-            thumb.convert("RGB").save(bio, "JPEG", quality=60)
-            return base64.b64encode(bio.getvalue()).decode()
+            for img in images:
+                if not isinstance(img, Image.Image):
+                    continue
+                thumb = img.copy()
+                thumb.thumbnail((80, 80), Image.LANCZOS)
+                bio = BytesIO()
+                thumb.convert("RGB").save(bio, "JPEG", quality=60)
+                result_thumbs.append(base64.b64encode(bio.getvalue()).decode())
         except Exception:
-            return None
+            pass
+        return result_thumbs
 
     def _open_usage(self):
         from ui.usage_window import UsageWindow
@@ -363,7 +370,20 @@ class BullshitDetectorApp:
             self._loading = None
         # 清理已关闭的旧窗口
         self._result_windows = [w for w in self._result_windows if w.isVisible()]
-        history_id = hs.add(result, thumbnail=self._make_thumbnail(images))
+        # 缓存原始输入
+        import history_cache as hc
+        input_text = result.get("_input_text")
+        try:
+            if images:
+                cache_id = hc.save("image", images=images)
+            elif input_text:
+                cache_id = hc.save("text", text=input_text)
+            else:
+                cache_id = None
+        except Exception:
+            cache_id = None
+        thumbnails = self._make_thumbnails(images)
+        history_id = hs.add(result, thumbnails=thumbnails, cache_id=cache_id)
         session_id = str(uuid.uuid4())
         win = ResultWindow(result, position, images=images, history_id=history_id, session_id=session_id)
         # 有已打开的窗口时向右下偏移，避免完全重叠

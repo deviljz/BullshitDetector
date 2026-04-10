@@ -19,83 +19,179 @@ from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS
 # _NO_THINKING imported from host module to avoid duplication
 _NO_THINKING = {"reasoning_effort": "none"}
 
+_DECAY = [1.0, 0.6, 0.4, 0.25]
+_WEIGHT = {"决定性": 60, "重要": 35, "一般": 18, "次要": 7, "无关": 2}
+
+
+def _claim_penalty_ratio(r: dict) -> float:
+    """Map a claim result to a 0.0–1.0 penalty score.
+
+    Supports both new multi-dim format (fact_layer) and legacy (verdict).
+    """
+    if "fact_layer" not in r:
+        # Legacy format: single verdict string
+        verdict = r.get("verdict", "")
+        if "✗" in verdict:
+            return 1.0
+        if "?" in verdict:
+            return 0.25
+        return 0.0
+    fact = r.get("fact_layer", "? 无法核实")
+    if fact == "○ 非事实声明":
+        return 0.0
+    base = {"✗ 不存在": 1.0, "? 无法核实": 0.25, "✓ 存在": 0.0}.get(fact, 0.25)
+    extra = 0.0
+    if r.get("number_layer") == "✗ 错误":
+        extra += 0.55
+    elif r.get("number_layer") == "⚠️ 近似":
+        extra += 0.08
+    if r.get("name_layer") == "✗ 误导性命名":
+        extra += 0.25
+    elif r.get("name_layer") == "⚠️ 俗称夸大":
+        extra += 0.08
+    if r.get("cause_layer") == "✗ 谬误":
+        extra += 0.35
+    elif r.get("cause_layer") == "⚠️ 存疑":
+        extra += 0.08
+    return min(1.0, base + extra)
+
 
 class _PlanExecuteMixin:
     """Plan-and-Execute pipeline methods. No __init__."""
 
-    _CLAIM_VERIFY_RETRY = "请根据搜索结果，输出该声明的核查结论 JSON。"
-
     def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
                       trace: list | None = None) -> dict:
-        """Stage 2: Independent verification of one claim (fresh context, no images)."""
+        """Stage 2: Independent verification of one claim using submit_claim_result tool."""
+        from ai.tools import SUBMIT_CLAIM_RESULT_TOOL, TOOLS, execute_tool
+
         if isinstance(claim, dict):
             claim_text = claim.get("text", "")
             claim_type = claim.get("type", "fact")
+            claim_importance = claim.get("importance", "一般")
         else:
             claim_text = claim
             claim_type = "fact"
+            claim_importance = "一般"
+
         user_text = f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim_text}"
         if claim_type == "narrative":
-            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点/因果解释），此类声明通常难以直接证伪。请搜索是否有具体反驳证据；若搜不到直接矛盾，应判'? 无法核实'。"
+            user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点/因果解释），此类声明通常难以直接证伪。若搜不到直接矛盾，fact_layer 应判'? 无法核实'。"
+
         messages = [
             {"role": "system", "content": get_claim_verify_prompt()},
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
-        content, search_log, tokens = self._tool_loop(
-            messages, 4000, self._CLAIM_VERIFY_RETRY, force_first_tool=True,
-            max_rounds=3, query_cache=query_cache,
-            trace=trace, stage_name=f"verify: {claim_text[:40]}",
-            temperature=0, extra_create_kwargs={"reasoning_effort": "low"},
-        )
-        try:
-            result = parse_json(content)
-            if isinstance(result, list) and result:
-                result = result[0]
-            if not isinstance(result, dict):
-                raise ValueError("not a dict")
-        except Exception:
-            result = {"verdict": "? 无法核实", "effective_sources": 0,
-                      "best_source_type": "none", "note": "核查解析失败", "sources": []}
-        # Hard enforcement: no sources → cannot be ✗ 伪造
-        if result.get("verdict") == "✗ 伪造" and result.get("effective_sources", 0) == 0:
-            result["verdict"] = "? 无法核实"
+        verify_tools = [TOOLS[0], SUBMIT_CLAIM_RESULT_TOOL]  # web_search + submit
+
+        result = None
+        search_log: list = []
+        tokens: dict = {"input_tokens": 0, "output_tokens": 0}
+        _t0 = time.monotonic()
+
+        for _round in range(5):
+            try:
+                resp = self._create_with_retry(
+                    model=self._model,
+                    messages=messages,
+                    max_tokens=2000,
+                    tools=verify_tools,
+                    tool_choice="required" if _round == 0 else "auto",
+                    temperature=0,
+                    reasoning_effort="low",
+                )
+            except Exception:
+                break
+
+            if resp.usage:
+                tokens["input_tokens"] += resp.usage.prompt_tokens or 0
+                tokens["output_tokens"] += resp.usage.completion_tokens or 0
+
+            choice = resp.choices[0]
+            messages.append(choice.message)
+
+            if not choice.message.tool_calls:
+                break
+
+            tool_msgs = []
+            for tc in choice.message.tool_calls:
+                if tc.function.name == "submit_claim_result":
+                    try:
+                        result = json.loads(tc.function.arguments)
+                    except Exception:
+                        result = {}
+                    tool_msgs.append({"role": "tool", "tool_call_id": tc.id,
+                                      "content": '{"status":"ok"}'})
+                elif tc.function.name == "web_search":
+                    try:
+                        args = json.loads(tc.function.arguments)
+                        query = args.get("query", "")
+                        if query_cache is not None and query in query_cache:
+                            content = query_cache[query]
+                        else:
+                            content = execute_tool("web_search", args)
+                            if query_cache is not None:
+                                query_cache[query] = content
+                        search_log.append({"query": query, "round": _round})
+                    except Exception as e:
+                        content = f"搜索失败: {e}"
+                    tool_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+
+            messages.extend(tool_msgs)
+            if result is not None:
+                break
+
+        if trace is not None:
+            trace.append({
+                "name": f"verify: {claim_text[:40]}",
+                "elapsed_s": round(time.monotonic() - _t0, 2),
+                "tokens": tokens,
+            })
+
+        if result is None:
+            result = {"fact_layer": "? 无法核实", "effective_sources": 0,
+                      "note": "核查超时或失败", "sources": []}
+
+        # Hard enforcement: no sources → cannot be ✗ 不存在
+        if result.get("fact_layer") == "✗ 不存在" and result.get("effective_sources", 0) == 0:
+            result["fact_layer"] = "? 无法核实"
             result["note"] = result.get("note", "") + " [effective_sources=0，自动改判为无法核实]"
+
         result["claim"] = claim_text
         result["claim_type"] = claim_type
+        result["claim_importance"] = claim_importance
         result["_search_log"] = search_log
         result["_tokens"] = tokens
         return result
 
     @staticmethod
     def _calculate_bi(claim_results: list[dict], title_logic: dict, hype: dict) -> tuple[int, str]:
-        """Deterministic bi calculation from structured inputs."""
-        # 核心 fake（直接影响结论）全权重；边角 fake 半权重
-        core_fake = sum(1 for c in claim_results
-                        if "✗" in c.get("verdict", "") and c.get("is_core_claim", True))
-        side_fake = sum(1 for c in claim_results
-                        if "✗" in c.get("verdict", "") and not c.get("is_core_claim", True))
-        fake = core_fake + side_fake  # 总 fake 数（用于后续加分）
-        fake_weight = core_fake + side_fake * 0.5  # 加权 fake 数（决定基础档位）
-        unverified = sum(1 for c in claim_results if "?" in c.get("verdict", ""))
-        narrative_true = sum(1 for c in claim_results
-                             if c.get("claim_type") == "narrative" and "✓" in c.get("verdict", ""))
-        if fake_weight >= 2:
-            bi = 76
-        elif fake_weight >= 1:
-            bi = 56
-        elif fake_weight >= 0.5:
-            bi = 40  # 仅边角细节有误，核心结论未动摇
-        elif unverified > 0:
-            bi = 31
-        else:
-            bi = 15
-        bi += 5 * max(0, fake - 2)
-        bi += 2 * unverified
-        bi += 10 * narrative_true
+        """Deterministic bi calculation using multi-dim penalty_ratio × importance weight × position decay.
+
+        Penalty ratio: 0.0 (clean) → 1.0 (fully fake), computed by _claim_penalty_ratio.
+        Importance weight: 决定性=60, 重要=35, 一般=18, 次要=7, 无关=2
+        Position decay applied to claims sorted by (ratio × weight) desc: 1.0 / 0.6 / 0.4 / 0.25
+        标题有问题: +15 | 夸大（第三方估算当事实）: +12 | 其他夸大: +6
+        """
+        def _weight(c: dict) -> int:
+            imp = c.get("claim_importance")
+            if imp in _WEIGHT:
+                return _WEIGHT[imp]
+            v = c.get("is_core_claim")
+            return _WEIGHT["决定性"] if v is True else _WEIGHT["次要"]
+
+        scored = sorted(
+            [(ratio, _weight(c), c) for c in claim_results
+             if (ratio := _claim_penalty_ratio(c)) > 0],
+            key=lambda x: x[0] * x[1], reverse=True,
+        )
+        bi = 0
+        for rank, (ratio, weight, _c) in enumerate(scored):
+            decay = _DECAY[rank] if rank < len(_DECAY) else _DECAY[-1]
+            bi += round(ratio * weight * decay)
         if "有问题" in (title_logic.get("verdict") or ""):
-            bi += 10
+            bi += 15
         if "有夸大" in (hype.get("verdict") or ""):
-            bi += 10 if hype.get("type") == "第三方估算当事实" else 5
+            bi += 12 if hype.get("type") == "第三方估算当事实" else 6
         bi = min(bi, 100)
         risk = ("🚨 极度危险" if bi > 80 else
                 "🔶 高度警惕" if bi > 55 else
@@ -120,16 +216,35 @@ class _PlanExecuteMixin:
 
     @staticmethod
     def _nature_from_inputs(bi: int, claim_results: list[dict], title_logic: dict, hype: dict) -> str:
-        """Determine bullshit_nature from already-computed plan-execute inputs."""
-        fake_count = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
-        verified_count = sum(1 for c in claim_results if "✓" in c.get("verdict", ""))
-        has_uncertain = any("?" in c.get("verdict", "") for c in claim_results)
+        """Determine bullshit_nature from already-computed plan-execute inputs.
+
+        Supports both multi-dim (fact_layer) and legacy (verdict) claim formats.
+        """
+        def _is_fake(c: dict) -> bool:
+            if "fact_layer" in c:
+                return c.get("fact_layer") == "✗ 不存在"
+            return "✗" in c.get("verdict", "")
+
+        def _is_verified(c: dict) -> bool:
+            if "fact_layer" in c:
+                return c.get("fact_layer") == "✓ 存在"
+            return "✓" in c.get("verdict", "")
+
+        def _is_uncertain(c: dict) -> bool:
+            if "fact_layer" in c:
+                return c.get("fact_layer") == "? 无法核实"
+            return "?" in c.get("verdict", "")
+
+        fake_count = sum(1 for c in claim_results if _is_fake(c))
+        verified_count = sum(1 for c in claim_results if _is_verified(c))
+        has_uncertain = any(_is_uncertain(c) for c in claim_results)
+
         if fake_count > 0:
             if verified_count >= 2 * fake_count:
-                return "基本属实"   # 绝大多数属实，仅个别细节有误
+                return "基本属实"
             if verified_count > fake_count:
-                return "局部失实"   # 多处重要声明存疑但核心尚成立
-            return "事实错误"       # 伪造数 >= 已核实数，核心结论不成立
+                return "局部失实"
+            return "事实错误"
         tl_verdict = title_logic.get("verdict") or ""
         if "有问题" in tl_verdict and "无标题" not in tl_verdict:
             return "标题党"
@@ -137,13 +252,24 @@ class _PlanExecuteMixin:
             return "夸大渲染"
         if has_uncertain:
             return "局部失实"
-        return "真实但离谱" if bi <= 20 else "夸大渲染"
+        return "基本属实"
 
     @staticmethod
     def _calculate_radar(claim_results: list[dict], title_logic: dict, hype: dict) -> dict:
         n = max(len(claim_results), 1)
-        fake = sum(1 for c in claim_results if "✗" in c.get("verdict", ""))
-        unverified = sum(1 for c in claim_results if "?" in c.get("verdict", ""))
+
+        def _is_fake(c: dict) -> bool:
+            if "fact_layer" in c:
+                return c.get("fact_layer") == "✗ 不存在"
+            return "✗" in c.get("verdict", "")
+
+        def _is_uncertain(c: dict) -> bool:
+            if "fact_layer" in c:
+                return c.get("fact_layer") == "? 无法核实"
+            return "?" in c.get("verdict", "")
+
+        fake = sum(1 for c in claim_results if _is_fake(c))
+        unverified = sum(1 for c in claim_results if _is_uncertain(c))
         verified = n - fake - unverified
 
         # logic_consistency: 5=all verified, penalize fake/unverified/title issues
@@ -316,7 +442,11 @@ class _PlanExecuteMixin:
 
                     def _run_verify(tc, _text=text, _cache=query_cache, _stages=_dbg["stages"]):
                         args = json.loads(tc.function.arguments)
-                        claim_obj = {"text": args.get("claim", ""), "type": args.get("claim_type", "fact")}
+                        claim_obj = {
+                            "text": args.get("claim", ""),
+                            "type": args.get("claim_type", "fact"),
+                            "importance": args.get("claim_importance", "一般"),
+                        }
                         result = self._verify_claim(claim_obj, _text, _cache, _stages)
                         tokens = result.pop("_tokens", {})
                         slog = result.pop("_search_log", []) or []

@@ -277,10 +277,14 @@ PLAN_EXECUTE_TOOLS = [
                 "properties": {
                     "claim": {"type": "string", "description": "待核查的声明原文"},
                     "claim_type": {"type": "string", "enum": ["fact", "narrative"], "description": "fact：含具体数字/人名/事件可直接搜索；narrative：因果/评价类隐含论点"},
-                    "is_core_claim": {"type": "boolean", "description": "该声明是否直接支撑文章核心结论？true=核心声明（若为假则核心结论崩塌）；false=边角细节（若为假不影响整体结论）"},
+                    "claim_importance": {
+                        "type": "string",
+                        "enum": ["决定性", "重要", "一般", "次要", "无关"],
+                        "description": "该声明对文章核心结论的影响程度：决定性=此声明为假则核心结论完全崩塌；重要=明显削弱但不完全推翻；一般=影响可信度但核心尚成立；次要=边角细节影响很小；无关=即使为假也不影响结论",
+                    },
                     "context": {"type": "string", "description": "声明所在文章的标题和核心背景（100字以内）"},
                 },
-                "required": ["claim", "claim_type", "is_core_claim"],
+                "required": ["claim", "claim_type", "claim_importance"],
             },
         },
     },
@@ -324,7 +328,7 @@ PLAN_EXECUTE_TOOLS = [
                             "properties": {
                                 "claim": {"type": "string"},
                                 "claim_type": {"type": "string"},
-                                "is_core_claim": {"type": "boolean"},
+                                "claim_importance": {"type": "string"},
                                 "verdict": {"type": "string"},
                                 "effective_sources": {"type": "integer"},
                                 "best_source_type": {"type": "string"},
@@ -378,8 +382,8 @@ SUBMIT_TITLE_LOGIC_TOOL = {
             "properties": {
                 "verdict": {
                     "type": "string",
-                    "enum": ["有问题", "无问题"],
-                    "description": "有问题=标题存在因果谬误或严重夸大；无问题=标题与正文一致",
+                    "enum": ["有问题", "无问题", "无标题"],
+                    "description": "有问题=标题存在因果谬误或严重夸大；无问题=标题与正文一致；无标题=输入内容没有标题无法核查",
                 },
                 "reason": {"type": "string", "description": "简要说明，≤50字"},
             },
@@ -407,6 +411,63 @@ SUBMIT_HYPE_TOOL = {
                     "description": "夸大类型，无夸大时填'无'",
                 },
                 "reason": {"type": "string", "description": "简要说明，≤50字"},
+            },
+        },
+    },
+}
+
+SUBMIT_CLAIM_RESULT_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "submit_claim_result",
+        "description": "提交单条声明的多维度核查结论",
+        "parameters": {
+            "type": "object",
+            "required": ["fact_layer", "claim_importance", "effective_sources", "note"],
+            "properties": {
+                "fact_layer": {
+                    "type": "string",
+                    "enum": ["✓ 存在", "✗ 不存在", "? 无法核实", "○ 非事实声明"],
+                    "description": "事实层：声明描述的事实是否存在",
+                },
+                "name_layer": {
+                    "type": "string",
+                    "enum": ["✓ 准确", "⚠️ 俗称夸大", "✗ 误导性命名", "—"],
+                    "description": "命名层：声明使用的名称/称呼是否准确；无命名问题填'—'",
+                },
+                "number_layer": {
+                    "type": "string",
+                    "enum": ["✓ 准确", "⚠️ 近似", "✗ 错误", "—"],
+                    "description": "数字层：声明中的具体数字是否准确；无数字填'—'",
+                },
+                "cause_layer": {
+                    "type": "string",
+                    "enum": ["✓ 成立", "⚠️ 存疑", "✗ 谬误", "—"],
+                    "description": "归因层：声明的因果解释是否成立；无归因填'—'",
+                },
+                "claim_importance": {
+                    "type": "string",
+                    "enum": ["决定性", "重要", "一般", "次要", "无关"],
+                    "description": "该声明对文章核心结论的影响程度",
+                },
+                "effective_sources": {
+                    "type": "integer",
+                    "description": "有效独立信源数（同源转载只算1个）",
+                },
+                "source_genealogy": {
+                    "type": "string",
+                    "enum": ["multi_independent", "same_source_syndicated", "official_only", "none"],
+                    "description": "来源谱系",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "搜索过程和判断依据（100字以上）",
+                },
+                "sources": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "关键来源 URL 列表",
+                },
             },
         },
     },

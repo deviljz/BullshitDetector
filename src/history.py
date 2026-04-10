@@ -55,8 +55,20 @@ def _save_all(entries: list[dict]) -> None:
     )
 
 
-def add(result: dict, thumbnail: str | None = None) -> str:
-    """保存新记录，返回 entry_id。thumbnail 为 JPEG base64 字符串（可选）。"""
+def add(
+    result: dict,
+    thumbnail: str | None = None,
+    thumbnails: list[str] | None = None,
+    cache_id: str | None = None,
+) -> str:
+    """保存新记录，返回 entry_id。
+
+    thumbnails — JPEG base64 列表（优先，支持多图）。
+    thumbnail  — 旧单图兼容参数；thumbnails 未传时自动包装为列表。
+    cache_id   — historyCache 条目 ID，可选。
+    """
+    if thumbnails is None and thumbnail is not None:
+        thumbnails = [thumbnail]
     entries = load_all()
     entry_id = str(uuid.uuid4())
     mode = result.get("_mode", "analyze")
@@ -66,7 +78,8 @@ def add(result: dict, thumbnail: str | None = None) -> str:
         "mode": mode,
         "type_label": _MODE_LABELS.get(mode, mode),
         "title": _derive_title(result),
-        "thumbnail": thumbnail,
+        "thumbnails": thumbnails or [],
+        "cache_id": cache_id,
         "result": result,
         "chat": [],
     }

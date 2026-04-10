@@ -173,8 +173,9 @@ class HistoryWindow(QWidget):
         )
         h.addWidget(type_lbl)
 
-        # 缩略图（固定宽度，紧跟类型）
-        thumb_b64 = entry.get("thumbnail")
+        # 缩略图（固定宽度，紧跟类型）— 优先新字段 thumbnails，兼容旧字段 thumbnail
+        _thumbs = entry.get("thumbnails") or []
+        thumb_b64 = _thumbs[0] if _thumbs else entry.get("thumbnail")
         if thumb_b64:
             try:
                 import base64
@@ -252,11 +253,18 @@ class HistoryWindow(QWidget):
     def _open_entry(self, entry: dict):
         from ui.result_window import ResultWindow
 
-        thumb_b64 = entry.get("thumbnail")
-        image = self._thumb_to_pil(thumb_b64) if thumb_b64 else None
         result = entry.get("result", {})
         chat = entry.get("chat", [])
         history_id = entry.get("id")
+
+        # 尝试从 historyCache 加载原图；没有则降级到缩略图
+        images = self._load_cache_images(entry)
+        if images:
+            image = images[0]
+        else:
+            _thumbs = entry.get("thumbnails") or []
+            thumb_b64 = _thumbs[0] if _thumbs else entry.get("thumbnail")
+            image = self._thumb_to_pil(thumb_b64) if thumb_b64 else None
 
         old = getattr(self, "_result_win", None)
         if old is not None and old.isVisible():
@@ -267,6 +275,27 @@ class HistoryWindow(QWidget):
                                history_id=history_id, chat_history=chat)
             win.show()
             self._result_win = win
+
+    @staticmethod
+    def _load_cache_images(entry: dict):
+        """从 historyCache 加载原图列表（PIL Image），失败或无 cache 返回 None。"""
+        cache_id = entry.get("cache_id")
+        if not cache_id:
+            return None
+        try:
+            import base64
+            from io import BytesIO
+            from PIL import Image
+            import history_cache as hc
+            cached = hc.load(cache_id)
+            if not cached or cached.get("input_type") != "image":
+                return None
+            imgs = []
+            for b64 in cached.get("images_b64", []):
+                imgs.append(Image.open(BytesIO(base64.b64decode(b64))))
+            return imgs or None
+        except Exception:
+            return None
 
     def _clear_all(self):
         from PyQt6.QtWidgets import QMessageBox
