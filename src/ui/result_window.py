@@ -611,8 +611,11 @@ class ResultWindow(QWidget):
                     n_lbl.setStyleSheet("color: #6c7086; font-size: 10px;")
                     claim_sec._content_layout.addWidget(n_lbl)
                 for src in c.get("sources", [])[:3]:
-                    src_url = src.get("url", "")
-                    src_title = src.get("title", "") or src_url
+                    if isinstance(src, str):
+                        src_url, src_title = src, src
+                    else:
+                        src_url = src.get("url", "")
+                        src_title = src.get("title", "") or src_url
                     if not src_url:
                         continue
                     display = src_title[:50] + ("…" if len(src_title) > 50 else "")
