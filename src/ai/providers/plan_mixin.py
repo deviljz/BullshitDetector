@@ -113,15 +113,17 @@ class _PlanExecuteMixin:
                 break
 
             tool_msgs = []
+            search_tcs = []
+            submit_tc = None
             for tc in choice.message.tool_calls:
                 if tc.function.name == "submit_claim_result":
-                    try:
-                        result = json.loads(tc.function.arguments)
-                    except Exception:
-                        result = {}
-                    tool_msgs.append({"role": "tool", "tool_call_id": tc.id,
-                                      "content": '{"status":"ok"}'})
+                    submit_tc = tc
                 elif tc.function.name == "web_search":
+                    search_tcs.append(tc)
+
+            # Execute all web_search calls in this round in parallel
+            if search_tcs:
+                def _run_one_search(tc, _round=_round):
                     try:
                         args = json.loads(tc.function.arguments)
                         query = args.get("query", "")
@@ -131,10 +133,23 @@ class _PlanExecuteMixin:
                             content = execute_tool("web_search", args)
                             if query_cache is not None:
                                 query_cache[query] = content
-                        search_log.append({"query": query, "round": _round})
+                        return tc.id, content, {"query": query, "round": _round}
                     except Exception as e:
-                        content = f"搜索失败: {e}"
-                    tool_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+                        return tc.id, f"搜索失败: {e}", None
+
+                with ThreadPoolExecutor(max_workers=len(search_tcs)) as _pool:
+                    for tc_id, content, log_entry in _pool.map(_run_one_search, search_tcs):
+                        tool_msgs.append({"role": "tool", "tool_call_id": tc_id, "content": content})
+                        if log_entry:
+                            search_log.append(log_entry)
+
+            if submit_tc:
+                try:
+                    result = json.loads(submit_tc.function.arguments)
+                except Exception:
+                    result = {}
+                tool_msgs.append({"role": "tool", "tool_call_id": submit_tc.id,
+                                  "content": '{"status":"ok"}'})
 
             messages.extend(tool_msgs)
             if result is not None:
@@ -316,6 +331,13 @@ class _PlanExecuteMixin:
             result = None
         if result is None:
             result = {"verdict": "无法判断", "reason": "核查失败"}
+        # Normalize verdict to canonical values (model sometimes ignores enum)
+        _TITLE_CANONICAL = {"有问题", "无问题", "无标题", "不适用", "无法判断"}
+        if result.get("verdict") not in _TITLE_CANONICAL:
+            v = result.get("verdict", "")
+            result["verdict"] = "有问题" if any(
+                kw in v for kw in ["问题", "错误", "不成立", "谬误", "夸大", "误导"]
+            ) else "无法判断"
         if trace is not None:
             usage = resp.usage if resp else None
             trace.append({"name": "title_logic_check", "response": str(result)[:200],
@@ -347,6 +369,13 @@ class _PlanExecuteMixin:
             result = None
         if result is None:
             result = {"verdict": "无法判断", "type": "无", "reason": "核查失败"}
+        # Normalize verdict to canonical values
+        _HYPE_CANONICAL = {"有夸大", "无夸大", "无法判断"}
+        if result.get("verdict") not in _HYPE_CANONICAL:
+            v = result.get("verdict", "")
+            result["verdict"] = "有夸大" if any(
+                kw in v for kw in ["夸大", "渲染", "虚报", "过度", "绝对"]
+            ) else "无法判断"
         if trace is not None:
             usage = resp.usage if resp else None
             trace.append({"name": "hype_check", "response": str(result)[:200],
@@ -472,7 +501,7 @@ class _PlanExecuteMixin:
                     if name == "analyze_title_logic":
                         # 若内容无可识别标题（首行超长或仅一行），跳过检查，避免误判标题党
                         if not self._text_has_title(text):
-                            title_logic = {"verdict": "无标题内容，跳过检查", "reason": "内容无独立标题行"}
+                            title_logic = {"verdict": "无标题", "reason": "内容无独立标题行"}
                         else:
                             title_logic = self._check_title_logic(_ctx_text, all_verify_results, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
@@ -525,8 +554,22 @@ class _PlanExecuteMixin:
             inv = submit_args.get("investigation_report") or {}
             if not title_logic and inv.get("title_logic_check"):
                 title_logic = inv["title_logic_check"]
+                # Normalize verdict when coming from re-planner free-form output
+                _TITLE_CANONICAL = {"有问题", "无问题", "无标题", "不适用", "无法判断"}
+                v = (title_logic.get("verdict") or "") if isinstance(title_logic, dict) else ""
+                if v and v not in _TITLE_CANONICAL:
+                    title_logic = {**title_logic, "verdict": "有问题" if any(
+                        kw in v for kw in ["问题", "错误", "不成立", "谬误", "夸大", "误导"]
+                    ) else "无法判断"}
             if not hype_check and inv.get("hype_check"):
                 hype_check = inv["hype_check"]
+                # Normalize verdict when coming from re-planner free-form output
+                _HYPE_CANONICAL = {"有夸大", "无夸大", "无法判断"}
+                v = (hype_check.get("verdict") or "") if isinstance(hype_check, dict) else ""
+                if v and v not in _HYPE_CANONICAL:
+                    hype_check = {**hype_check, "verdict": "有夸大" if any(
+                        kw in v for kw in ["夸大", "渲染", "虚报", "过度", "绝对"]
+                    ) else "无法判断"}
 
             # Deterministic bi calculation — always use Python-tracked results (authoritative 4-layer data)
             cv_python = [

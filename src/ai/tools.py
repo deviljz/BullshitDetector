@@ -382,8 +382,8 @@ SUBMIT_TITLE_LOGIC_TOOL = {
             "properties": {
                 "verdict": {
                     "type": "string",
-                    "enum": ["有问题", "无问题", "无标题"],
-                    "description": "有问题=标题存在因果谬误或严重夸大；无问题=标题与正文一致；无标题=输入内容没有标题无法核查",
+                    "enum": ["有问题", "无问题", "无标题", "不适用"],
+                    "description": "有问题=标题存在因果谬误或严重夸大；无问题=标题与正文一致；无标题/不适用=输入内容没有标题无法核查",
                 },
                 "reason": {"type": "string", "description": "简要说明，≤50字"},
             },
