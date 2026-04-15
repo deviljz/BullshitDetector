@@ -353,7 +353,17 @@ PLAN_EXECUTE_TOOLS = [
                         "type": "string",
                         "enum": ["事实错误", "局部失实", "基本属实", "夸大渲染",
                                  "真实但离谱", "标题党", "断章取义", "逻辑混乱"],
-                        "description": "内容性质八选一，参照 claim_verification 结论综合判断",
+                        "description": (
+                            "内容性质八选一，参照 claim_verification 结论综合判断。"
+                            "决策规则：① claim_verification 中 ✗ 声明数 ≥ 已核实数 → 事实错误；"
+                            "② 多处重要声明 ✗ 或 ? 但核心尚成立 → 局部失实；"
+                            "③ 绝大多数 ✓ 仅细节有误 → 基本属实；"
+                            "④ 全部 ✓ 但 hype_check 有夸大 → 夸大渲染；"
+                            "⑤ 全部 ✓ 且 hype_check 无夸大但内容荒诞 → 真实但离谱（注意：只要有任何 ✗，禁止选此项）；"
+                            "⑥ title_logic_check 有问题 → 标题党；"
+                            "⑦ 语境剥离/断章截图 → 断章取义；"
+                            "⑧ 推理链断裂 → 逻辑混乱"
+                        ),
                     },
                     "flaw_list": {
                         "type": "array",
