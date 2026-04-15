@@ -36,6 +36,9 @@ def _claim_penalty_ratio(r: dict) -> float:
         if "?" in verdict:
             return 0.25
         return 0.0
+    # Timeout/failure is more suspicious than ordinary "无法核实"
+    if "核查超时或失败" in (r.get("note") or ""):
+        return 0.5
     fact = r.get("fact_layer", "? 无法核实")
     if fact == "○ 非事实声明":
         return 0.0
@@ -327,7 +330,9 @@ class _PlanExecuteMixin:
             )
             tc = (resp.choices[0].message.tool_calls or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
-        except Exception:
+        except Exception as e:
+            import logging
+            logging.warning("_check_title_logic failed: %s", repr(e))
             result = None
         if result is None:
             result = {"verdict": "无法判断", "reason": "核查失败"}
@@ -348,9 +353,11 @@ class _PlanExecuteMixin:
 
     def _check_hype(self, article_text: str, trace: list | None = None) -> dict:
         """Stage 3b: Hype/exaggeration check (tool_use for reliable structured output)."""
+        import logging
         from ai.tools import SUBMIT_HYPE_TOOL
         _t0 = time.monotonic()
         resp = None
+        _err = None
         try:
             resp = self._create_with_retry(
                 model=self._model,
@@ -365,10 +372,12 @@ class _PlanExecuteMixin:
             )
             tc = (resp.choices[0].message.tool_calls or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
-        except Exception:
+        except Exception as e:
+            _err = repr(e)
+            logging.warning("_check_hype failed: %s", _err)
             result = None
         if result is None:
-            result = {"verdict": "无法判断", "type": "无", "reason": "核查失败"}
+            result = {"verdict": "无法判断", "type": "无", "reason": f"核查失败: {_err}" if _err else "核查失败"}
         # Normalize verdict to canonical values
         _HYPE_CANONICAL = {"有夸大", "无夸大", "无法判断"}
         if result.get("verdict") not in _HYPE_CANONICAL:
@@ -570,6 +579,9 @@ class _PlanExecuteMixin:
                     hype_check = {**hype_check, "verdict": "有夸大" if any(
                         kw in v for kw in ["夸大", "渲染", "虚报", "过度", "绝对"]
                     ) else "无法判断"}
+            # Guarantee hype_check always has a verdict (re-planner may skip analyze_hype)
+            if not hype_check.get("verdict"):
+                hype_check = self._check_hype(_ctx_text, _dbg["stages"])
 
             # Deterministic bi calculation — always use Python-tracked results (authoritative 4-layer data)
             cv_python = [
