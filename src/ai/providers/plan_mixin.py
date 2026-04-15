@@ -605,7 +605,11 @@ class _PlanExecuteMixin:
                     "verdict": submit_args.get("verdict_text", ""),
                     "truth_label": f"{100 - bi}% 属实" if isinstance(bi, int) else "分析中",
                 },
-                "claim_verification": cv,
+                "claim_verification": [
+                    {**c, "verdict": c["verdict"]} if "verdict" in c
+                    else {**c, "verdict": c.get("fact_layer", "? 无法核实")}
+                    for c in cv
+                ],
                 "investigation_report": {
                     "title_logic_check": title_logic,
                     "hype_check": hype_check,
