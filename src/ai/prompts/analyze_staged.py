@@ -1,4 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _BULLSHIT_NATURE_RULE
+from .shared import _current_date
 
 
 def get_claim_verify_prompt() -> str:
@@ -95,90 +95,6 @@ def get_hype_check_prompt() -> str:
 
 调用 submit_hype_check 工具提交结果。"""
 
-
-def get_framing_check_prompt() -> str:
-    """Stage 3c: 叙事框架核查 + caveats 生成（独立 Agent，无搜索）。"""
-    return """根据文章内容和已完成的声明核查结果，识别叙事框架问题并生成 caveats。
-
-检查以下情况（有则写入数组，每条一句话，最多4条）：
-- 归因有误：声明归因于"X官方表示"但实为第三方估算 → "归因问题：[具体说明]"
-- 叙事框架偏差：将普通成绩包装成异常突破，或省略不利对比 → 写具体偏差
-- 财务数据隐性前提：只算开发预算不含宣发/平台分成 → "[声明]的回本计算未含宣发成本，实际周期更长"
-- 对比基准遗漏：如续作销量好但不如前作同期 → 写具体遗漏
-
-无以上问题则输出空数组。
-
-输出 JSON（不加 markdown 代码块）：{"caveats": ["具体问题1", ...]}"""
-
-
-def get_final_verdict_prompt(tone: str = "toxic") -> str:
-    """分阶段鉴定 Stage 4：基于预计算结果写创意裁决文本（禁止搜索，禁止改动结构化字段）。"""
-    t = _TONE_CONFIGS.get(tone, _TONE_CONFIGS["toxic"])
-    return f"""{t['persona']}
-
-今天的日期是 {_current_date}。
-
-## 你的角色
-
-声明核查、bullshit_index、risk_level、title_logic_check、hype_check、caveats 已由专项 Agent 完成，结果在用户消息中。
-
-**你只需要做以下几件事：**
-1. **原样复制** claim_verification（一字不改）
-2. **原样复制** bullshit_index、risk_level、title_logic_check、hype_check、caveats（一字不改）
-3. **创作** header.truth_label 和 header.verdict（根据给定的 bi 和核查结论）
-4. **评估** radar_chart 4个维度（0-5分）
-5. **分析** investigation_report 中的定性字段：content_nature、source_origin、time_check、entity_check、physics_check、source_independence_note、missing_info、intent_check、framing_bias
-6. **创作** toxic_review、flaw_list、one_line_summary
-
-**禁止调用任何工具。禁止搜索。禁止修改数字化/结构化字段。**
-
----
-
-## 输出格式
-
-{_BULLSHIT_NATURE_RULE}
-
-最终严格按以下 JSON 格式输出，不输出任何其他内容：
-
-{{
-  "claim_verification": [...从用户消息中原样复制，每个字段一字不改...],
-  "header": {{
-    "bullshit_index": 从用户消息原样复制的整数,
-    "bullshit_nature": "必填！按上方⚠️规则八选一：事实错误 / 局部失实 / 基本属实 / 夸大渲染 / 真实但离谱 / 标题党 / 断章取义 / 逻辑混乱",
-    "truth_label": "生动描述，例如：65% 的硬核技术分享 + 35% 的营销暴论",
-    "risk_level": "从用户消息原样复制",
-    "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
-  }},
-  "radar_chart": {{
-    "logic_consistency": 0-5,
-    "source_authority": 0-5,
-    "agitation_level": 0-5,
-    "search_match": 0-5
-  }},
-  "investigation_report": {{
-    "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他",
-    "source_origin": "文章来源识别：自媒体/科技媒体/官方新闻等",
-    "time_check": "时间线核查：文章引用的数据/事件时间是否与核查结果吻合",
-    "entity_check": "机构/人名/来源核查：关键实体是否真实",
-    "physics_check": "技术常识核查：技术声明是否符合行业共识",
-    "source_independence_note": "信源独立性：基于 claim_verification 中 effective_sources 和 source_genealogy 的综合评估",
-    "hype_check": {{从用户消息原样复制}},
-    "missing_info": "遗漏信息：文章是否系统性忽略了反例、局限性或关键对比基准",
-    "intent_check": "意图检测：文章是否有商业推广、引流变现、焦虑制造或情绪操纵意图",
-    "title_logic_check": {{从用户消息原样复制}},
-    "framing_bias": "叙事框架偏差：整体叙事是否制造虚假印象？是否省略关键对比基准？"
-  }},
-  "caveats": [从用户消息原样复制],
-  "toxic_review": "{{t_output_review}}",
-  "flaw_list": ["破绽1：具体指出哪里夸大/无来源/意图不纯", "破绽2：..."],
-  "one_line_summary": "{{t_output_summary}}"
-}}
-
-{_JSON_FORMAT_FOOTER}""".replace(
-        "{t_output_review}", t['output_review']
-    ).replace(
-        "{t_output_summary}", t['output_summary']
-    )
 
 
 def get_planner_prompt(tone: str = "toxic") -> str:
