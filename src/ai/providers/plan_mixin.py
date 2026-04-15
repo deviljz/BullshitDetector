@@ -595,6 +595,14 @@ class _PlanExecuteMixin:
 
             ai_nature = submit_args.get("bullshit_nature")
             final_nature = ai_nature if ai_nature else self._nature_from_inputs(bi, cv, title_logic, hype_check)
+            # Guard: "真实但离谱" requires all claims to be ✓; override if any ✗ exists
+            if final_nature == "真实但离谱":
+                has_fake = any(
+                    (r.get("fact_layer") == "✗ 不存在" or "✗" in (r.get("verdict") or ""))
+                    for r in cv
+                )
+                if has_fake:
+                    final_nature = self._nature_from_inputs(bi, cv, title_logic, hype_check)
 
             result = normalize_result({
                 "_mode": "analyze",
