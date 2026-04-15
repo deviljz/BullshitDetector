@@ -471,14 +471,31 @@ class _PlanExecuteMixin:
 
                 # Separate tool calls by type
                 verify_tcs, other_tcs, submit_tc = [], [], None
+                _narrative_tc = None
                 for tc in choice.message.tool_calls:
                     name = tc.function.name
                     if name == "submit_verdict":
                         submit_tc = tc
                     elif name == "verify_claim":
                         verify_tcs.append(tc)
+                    elif name == "identify_narrative":
+                        _narrative_tc = tc
                     else:
                         other_tcs.append(tc)
+
+                # If planner called identify_narrative with should_verify=true,
+                # add it to the parallel verify queue (Python will run _verify_claim for it)
+                if _narrative_tc:
+                    try:
+                        _n = json.loads(_narrative_tc.function.arguments)
+                        if _n.get("should_verify") and _n.get("article_conclusion"):
+                            verify_tcs.append(_narrative_tc)  # handled in _run_verify below
+                        else:
+                            messages.append({"role": "tool", "tool_call_id": _narrative_tc.id,
+                                             "content": '{"status": "no_verify_needed"}'})
+                    except Exception:
+                        messages.append({"role": "tool", "tool_call_id": _narrative_tc.id,
+                                         "content": '{"status": "parse_error"}'})
 
                 # Run verify_claims in parallel
                 if verify_tcs:
@@ -490,11 +507,18 @@ class _PlanExecuteMixin:
 
                     def _run_verify(tc, _text=text, _cache=query_cache, _stages=_dbg["stages"]):
                         args = json.loads(tc.function.arguments)
-                        claim_obj = {
-                            "text": args.get("claim", ""),
-                            "type": args.get("claim_type", "fact"),
-                            "importance": args.get("claim_importance", "一般"),
-                        }
+                        if tc.function.name == "identify_narrative":
+                            conclusion = args.get("article_conclusion", "")
+                            assumption = args.get("key_assumption", "无")
+                            claim_text = (f"{conclusion}（前提：{assumption}）"
+                                          if assumption and assumption != "无" else conclusion)
+                            claim_obj = {"text": claim_text, "type": "narrative", "importance": "重要"}
+                        else:
+                            claim_obj = {
+                                "text": args.get("claim", ""),
+                                "type": args.get("claim_type", "fact"),
+                                "importance": args.get("claim_importance", "一般"),
+                            }
                         result = self._verify_claim(claim_obj, _text, _cache, _stages)
                         tokens = result.pop("_tokens", {})
                         slog = result.pop("_search_log", []) or []

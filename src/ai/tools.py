@@ -377,8 +377,47 @@ PLAN_EXECUTE_TOOLS = [
     },
 ]
 
-# Planner 阶段只能调用 verify_claim（强制提取核查清单）
-PLANNER_TOOLS = [t for t in PLAN_EXECUTE_TOOLS if t["function"]["name"] == "verify_claim"]
+# 叙事结论提取工具（仅 Planner 阶段使用）
+# Python 接收后自动对隐含结论运行 _verify_claim(type="narrative")
+IDENTIFY_NARRATIVE_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "identify_narrative",
+        "description": (
+            "提取文章核心叙事结论。请在同一次响应中与 verify_claim 并列调用：此工具提取隐含论点，"
+            "verify_claim 核查具体事实。每次分析只调用一次。"
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["article_conclusion", "key_assumption", "should_verify"],
+            "properties": {
+                "article_conclusion": {
+                    "type": "string",
+                    "description": "文章试图让读者得出的核心结论（即使未明说），用一句话表达（≤60字）",
+                },
+                "key_assumption": {
+                    "type": "string",
+                    "description": (
+                        "该结论成立所依赖的、文章未验证的关键前提。"
+                        "例如：'A法律适用于B国'/'X行为必然导致Y结果'。若确实无隐含前提填'无'"
+                    ),
+                },
+                "should_verify": {
+                    "type": "boolean",
+                    "description": (
+                        "是否需要核查该叙事结论：含因果链条、隐含前提或跳跃推理时为 true；"
+                        "纯客观事件报道（无隐含结论）为 false"
+                    ),
+                },
+            },
+        },
+    },
+}
+
+# Planner 阶段工具集：identify_narrative（提取叙事结论）+ verify_claim（核查具体事实）
+PLANNER_TOOLS = [IDENTIFY_NARRATIVE_TOOL] + [
+    t for t in PLAN_EXECUTE_TOOLS if t["function"]["name"] == "verify_claim"
+]
 
 # 内部工具：仅在 _check_title_logic / _check_hype 中使用，不暴露给 re-planner
 SUBMIT_TITLE_LOGIC_TOOL = {
