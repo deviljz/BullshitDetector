@@ -202,6 +202,16 @@ class _PlanExecuteMixin:
              if (ratio := _claim_penalty_ratio(c)) > 0],
             key=lambda x: x[0] * x[1], reverse=True,
         )
+        # Cap: at most 2 "决定性" claims keep full weight; extras downgrade to 重要 (35)
+        _decisive_seen = 0
+        _capped = []
+        for ratio, weight, c in scored:
+            if c.get("claim_importance") == "决定性":
+                _decisive_seen += 1
+                if _decisive_seen > 2:
+                    weight = _WEIGHT["重要"]
+            _capped.append((ratio, weight, c))
+        scored = _capped
         bi = 0
         for rank, (ratio, weight, _c) in enumerate(scored):
             decay = _DECAY[rank] if rank < len(_DECAY) else _DECAY[-1]
