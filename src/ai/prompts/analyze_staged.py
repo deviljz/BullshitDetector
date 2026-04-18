@@ -146,7 +146,6 @@ def get_replanner_prompt(tone: str = "toxic") -> str:
 
 **完成分析（调用 submit_verdict）**：
 - 已核查所有重要声明，且可选分析已按需完成
-- 将所有 verify_claim 的返回结果**原样**填入 claim_verification（禁止修改数字和判断）
 - 将 analyze_title_logic / analyze_hype 的返回结果填入 investigation_report
 - 撰写 one_line_summary、toxic_review（{_tone_label}风格）、verdict_text
 

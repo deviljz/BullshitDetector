@@ -104,15 +104,22 @@ def _search_bailian(query: str, api_key: str, max_results: int = 5) -> List[dict
             if block.get("type") == "text":
                 raw_text += block.get("text", "")
 
-        # Content may be JSON array of results or plain text
+        # Content may be JSON array of results, {"pages":[...]}, or plain text
         try:
-            items = _json.loads(raw_text)
-            if isinstance(items, list):
+            parsed = _json.loads(raw_text)
+            # Bailian returns {"pages": [...]} format
+            if isinstance(parsed, dict) and "pages" in parsed:
+                items = parsed["pages"]
+            elif isinstance(parsed, list):
+                items = parsed
+            else:
+                items = []
+            if items:
                 return [
                     {
                         "title": r.get("title", ""),
                         "snippet": r.get("snippet", r.get("content", r.get("abstract", ""))),
-                        "url": r.get("url", r.get("link", "")),
+                        "url": r.get("url", r.get("link", r.get("pageUrl", ""))),
                     }
                     for r in items[:max_results] if isinstance(r, dict)
                 ]
@@ -283,6 +290,7 @@ PLAN_EXECUTE_TOOLS = [
                         "description": "该声明对文章核心结论的影响程度：决定性=此声明为假则核心结论完全崩塌；重要=明显削弱但不完全推翻；一般=影响可信度但核心尚成立；次要=边角细节影响很小；无关=即使为假也不影响结论",
                     },
                     "context": {"type": "string", "description": "声明所在文章的标题和核心背景（100字以内）"},
+                    "quoted_from": {"type": "string", "description": "若声明是'X引用/援引了Y的话'，填Y的名字（如'维克多·雨果'）；X是自己原创发言则留空"},
                 },
                 "required": ["claim", "claim_type", "claim_importance"],
             },
@@ -320,23 +328,6 @@ PLAN_EXECUTE_TOOLS = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "claim_verification": {
-                        "type": "array",
-                        "description": "所有已核查声明的结果列表（从 verify_claim 工具返回结果中收集，原样复制，禁止修改数字和判断）",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "claim": {"type": "string"},
-                                "claim_type": {"type": "string"},
-                                "claim_importance": {"type": "string"},
-                                "verdict": {"type": "string"},
-                                "effective_sources": {"type": "integer"},
-                                "best_source_type": {"type": "string"},
-                                "source_genealogy": {"type": "string"},
-                                "note": {"type": "string"},
-                            },
-                        },
-                    },
                     "investigation_report": {
                         "type": "object",
                         "description": "综合调查报告，包含标题逻辑和夸大程度分析结果（从工具返回结果中收集）",
@@ -351,7 +342,7 @@ PLAN_EXECUTE_TOOLS = [
                     "verdict_text": {"type": "string", "description": "最终判决陈述（2-3句话，概括核查发现）"},
                     "bullshit_nature": {
                         "type": "string",
-                        "enum": ["事实错误", "局部失实", "基本属实", "夸大渲染",
+                        "enum": ["属实", "事实错误", "局部失实", "基本属实", "夸大渲染",
                                  "真实但离谱", "标题党", "断章取义", "逻辑混乱"],
                         "description": (
                             "内容性质八选一，参照 claim_verification 结论综合判断。"
@@ -371,7 +362,7 @@ PLAN_EXECUTE_TOOLS = [
                         "description": "核心破绽列表，每条≤20字，最多5条；确实无破绽则填[]",
                     },
                 },
-                "required": ["claim_verification", "one_line_summary", "verdict_text"],
+                "required": ["one_line_summary", "verdict_text"],
             },
         },
     },
@@ -512,11 +503,6 @@ SUBMIT_CLAIM_RESULT_TOOL = {
                     "type": "string",
                     "description": "搜索过程和判断依据（100字以上）",
                 },
-                "sources": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": "关键来源 URL 列表",
-                },
             },
         },
     },
@@ -526,19 +512,30 @@ SUBMIT_CLAIM_RESULT_TOOL = {
 _search_provider = SearchProvider()
 
 
+def _format_search_results(results: list) -> str:
+    lines = []
+    for i, r in enumerate(results, 1):
+        lines.append(f"{i}. {r['title']}\n   {r['snippet']}\n   来源: {r['url']}")
+    return "\n".join(lines)
+
+
+def web_search_with_sources(query: str) -> tuple[str, list[str]]:
+    """执行搜索，返回 (格式化文本, URL列表)。"""
+    results = _search_provider.search(query)
+    if not results:
+        return "未找到相关搜索结果", []
+    if "error" in results[0]:
+        return results[0]["error"], []
+    urls = [r["url"] for r in results if r.get("url")]
+    return _format_search_results(results), urls
+
+
 def execute_tool(name: str, arguments: dict) -> str:
     """执行工具调用，返回结果文本"""
     if name == "web_search":
         query = arguments.get("query", "")
-        results = _search_provider.search(query)
-        if results and "error" in results[0]:
-            return results[0]["error"]
-        if not results:
-            return "未找到相关搜索结果"
-        lines = []
-        for i, r in enumerate(results, 1):
-            lines.append(f"{i}. {r['title']}\n   {r['snippet']}\n   来源: {r['url']}")
-        return "\n".join(lines)
+        text, _ = web_search_with_sources(query)
+        return text
 
     if name == "reverse_image_search":
         if not _current_image_b64:

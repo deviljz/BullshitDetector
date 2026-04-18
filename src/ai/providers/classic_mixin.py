@@ -65,7 +65,14 @@ class _ClassicMixin:
                 messages, 4096, _ANALYZE_RETRY_PROMPT, _analyze_schema_ok,
                 trace=_dbg["stages"], stage_name="analyze_main",
             )
-            result = normalize_result(parse_json(content))
+            parsed = parse_json(content)
+            inv = parsed.get("investigation_report", {})
+            parsed["radar_chart"] = self._calculate_radar(
+                parsed.get("claim_verification", []),
+                inv.get("title_logic_check", {}) or {},
+                inv.get("hype_check", {}) or {},
+            )
+            result = normalize_result(parsed)
             result["_search_log"] = search_log
             result["_token_usage"] = raw_tokens
             token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}
@@ -98,7 +105,14 @@ class _ClassicMixin:
                 messages, 4096, _ANALYZE_ARTICLE_RETRY_PROMPT, _analyze_schema_ok,
                 trace=_dbg["stages"], stage_name="analyze_main",
             )
-            result = normalize_result(parse_json(content))
+            parsed = parse_json(content)
+            inv = parsed.get("investigation_report", {})
+            parsed["radar_chart"] = self._calculate_radar(
+                parsed.get("claim_verification", []),
+                inv.get("title_logic_check", {}) or {},
+                inv.get("hype_check", {}) or {},
+            )
+            result = normalize_result(parsed)
             result["_search_log"] = search_log
             result["_token_usage"] = raw_tokens
             token_dict = {"model": self._model, "input": raw_tokens["input_tokens"], "output": raw_tokens["output_tokens"]}

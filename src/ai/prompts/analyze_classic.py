@@ -1,4 +1,4 @@
-from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _RISK_LEVEL_RULE, _FINANCIAL_CLAIM_BLOCK, _RADAR_CHART_DEF, _BI_CONSISTENCY_RULE, _RETROCOST_CHECK, _NARRATIVE_CAVEATS_RULE, _BULLSHIT_NATURE_RULE
+from .shared import _current_date, _TONE_CONFIGS, _JSON_FORMAT_FOOTER, _FINANCIAL_CLAIM_BLOCK, _BI_CONSISTENCY_RULE, _RETROCOST_CHECK, _NARRATIVE_CAVEATS_RULE, _BULLSHIT_NATURE_RULE
 
 
 def get_system_prompt(tone: str = "toxic") -> str:
@@ -104,10 +104,6 @@ def _build_prompt(t: dict) -> str:
 
 ---
 
-{_RADAR_CHART_DEF}
-
----
-
 ## ⚠️ 输出前自我审计（强制执行）
 
 在生成最终 JSON 之前，必须完成以下自检：
@@ -125,8 +121,6 @@ def _build_prompt(t: dict) -> str:
 
 ## 输出格式
 
-{_RISK_LEVEL_RULE}
-
 {_BULLSHIT_NATURE_RULE}
 
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
@@ -139,14 +133,7 @@ def _build_prompt(t: dict) -> str:
     "bullshit_index": 0-100的整数（从上方claim_verification推导：全部✓→0-30，有?无✗→31-55，有✗→56+；铁律命中时取铁律范围更高者优先）,
     "bullshit_nature": "必填！按上方⚠️规则八选一：事实错误 / 局部失实 / 基本属实 / 夸大渲染 / 真实但离谱 / 标题党 / 断章取义 / 逻辑混乱",
     "truth_label": "生动描述，例如：5% 有点煽但内容属实 / 50% 半真半假掺沙子的饭 / 99% 保真难得清流",
-    "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按上方映射规则填写）",
     "verdict": "20-40字的核心判决，点出最关键的造假手法或可信依据"
-  }},
-  "radar_chart": {{
-    "logic_consistency": 0-5,
-    "source_authority": 0-5,
-    "agitation_level": 0-5,
-    "search_match": 0-5
   }},
   "investigation_report": {{
     "content_nature": "宣发/PR稿 / 新闻报道 / 社交媒体 / 其他",
@@ -245,10 +232,6 @@ def _build_article_prompt(t: dict) -> str:
 
 ---
 
-{_RADAR_CHART_DEF}
-
----
-
 ## ⚠️ 输出前自我审计（强制执行）
 
 在生成最终 JSON 之前，必须完成以下自检：
@@ -264,8 +247,6 @@ def _build_article_prompt(t: dict) -> str:
 
 ## 输出格式
 
-{_RISK_LEVEL_RULE}
-
 {_BULLSHIT_NATURE_RULE}
 
 最终严格按以下 JSON 格式输出，不输出任何其他内容：
@@ -278,14 +259,7 @@ def _build_article_prompt(t: dict) -> str:
     "bullshit_index": 0-100的整数（从上方claim_verification推导：全部fact✓且无narrative→0-30；每条narrative✓额外+10；有?无✗→31-55；有✗→56+；铁律命中时取铁律范围更高者优先）,
     "bullshit_nature": "必填！按上方⚠️规则八选一：事实错误 / 局部失实 / 基本属实 / 夸大渲染 / 真实但离谱 / 标题党 / 断章取义 / 逻辑混乱",
     "truth_label": "生动描述，例如：85% 披着科技外衣的营销软文 / 20% 基本属实的行业分析（此字段前后不得出现方括号[...]或自引用）",
-    "risk_level": "✅ 基本可信 / ⚠️ 有所存疑 / 🔶 高度警惕 / 🚨 极度危险（按上方映射规则填写）",
     "verdict": "20-40字的核心判决，点出最关键的夸大手法或可信依据"
-  }},
-  "radar_chart": {{
-    "logic_consistency": 0-5,
-    "source_authority": 0-5,
-    "agitation_level": 0-5,
-    "search_match": 0-5
   }},
   "investigation_report": {{
     "content_nature": "内容性质：宣发/PR稿 / 新闻报道 / 社交媒体 / 其他（宣发内容的自述部分不等于独立核实）",

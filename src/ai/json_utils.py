@@ -56,6 +56,8 @@ def _regex_extract_fields(text: str) -> dict:
 
 
 def _risk_level(bs: int) -> str:
+    if bs == 0:
+        return "✅ 属实可信"
     if bs <= 30:
         return "✅ 基本可信"
     if bs <= 55:
@@ -117,7 +119,7 @@ def normalize_result(result: dict) -> dict:
     header = result.setdefault("header", {})
     bs = header.setdefault("bullshit_index", 50)
     header.setdefault("truth_label", "未知")
-    header.setdefault("risk_level", _risk_level(bs))
+    header["risk_level"] = _risk_level(bs)  # always override: deterministic from bi
     header.setdefault("verdict", "无法判断")
 
     # Only fill radar defaults if the model actually returned radar data.

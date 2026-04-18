@@ -13,8 +13,8 @@ from ai.prompts import (
     get_planner_prompt, get_replanner_prompt,
 )
 from ai.prompts.shared import _current_date
-from ai.json_utils import parse_json, normalize_result
-from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS
+from ai.json_utils import parse_json, normalize_result, _risk_level
+from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS, web_search_with_sources
 
 # _NO_THINKING imported from host module to avoid duplication
 _NO_THINKING = {"reasoning_effort": "none"}
@@ -88,6 +88,7 @@ class _PlanExecuteMixin:
 
         result = None
         search_log: list = []
+        captured_urls: list[str] = []
         tokens: dict = {"input_tokens": 0, "output_tokens": 0}
         _t0 = time.monotonic()
 
@@ -131,18 +132,19 @@ class _PlanExecuteMixin:
                         args = json.loads(tc.function.arguments)
                         query = args.get("query", "")
                         if query_cache is not None and query in query_cache:
-                            content = query_cache[query]
+                            content, urls = query_cache[query]
                         else:
-                            content = execute_tool("web_search", args)
+                            content, urls = web_search_with_sources(query)
                             if query_cache is not None:
-                                query_cache[query] = content
-                        return tc.id, content, {"query": query, "round": _round}
+                                query_cache[query] = (content, urls)
+                        return tc.id, content, urls, {"query": query, "round": _round}
                     except Exception as e:
-                        return tc.id, f"搜索失败: {e}", None
+                        return tc.id, f"搜索失败: {e}", [], None
 
                 with ThreadPoolExecutor(max_workers=len(search_tcs)) as _pool:
-                    for tc_id, content, log_entry in _pool.map(_run_one_search, search_tcs):
+                    for tc_id, content, urls, log_entry in _pool.map(_run_one_search, search_tcs):
                         tool_msgs.append({"role": "tool", "tool_call_id": tc_id, "content": content})
+                        captured_urls.extend(urls)
                         if log_entry:
                             search_log.append(log_entry)
 
@@ -151,6 +153,7 @@ class _PlanExecuteMixin:
                     result = json.loads(submit_tc.function.arguments)
                 except Exception:
                     result = {}
+                result["sources"] = list(dict.fromkeys(captured_urls))  # dedup, preserve order
                 tool_msgs.append({"role": "tool", "tool_call_id": submit_tc.id,
                                   "content": '{"status":"ok"}'})
 
@@ -220,12 +223,15 @@ class _PlanExecuteMixin:
             bi += 15
         if "有夸大" in (hype.get("verdict") or ""):
             bi += 12 if hype.get("type") == "第三方估算当事实" else 6
+        # narrative ✓ 叙事类声明每条属实 +10（叙事论点≠客观事实）
+        narrative_verified = sum(
+            1 for c in claim_results
+            if c.get("claim_type") == "narrative"
+            and _claim_penalty_ratio(c) == 0.0
+        )
+        bi += narrative_verified * 10
         bi = min(bi, 100)
-        risk = ("🚨 极度危险" if bi > 80 else
-                "🔶 高度警惕" if bi > 55 else
-                "⚠️ 有所存疑" if bi > 30 else
-                "✅ 基本可信")
-        return bi, risk
+        return bi, _risk_level(bi)
 
     @staticmethod
     def _text_has_title(text: str) -> bool:
@@ -279,7 +285,16 @@ class _PlanExecuteMixin:
         if "有夸大" in (hype.get("verdict") or ""):
             return "夸大渲染"
         if has_uncertain:
-            return "局部失实"
+            # Only "局部失实" if uncertain claims dominate or a decisive claim is unverified
+            uncertain_count = sum(1 for c in claim_results if _is_uncertain(c))
+            has_decisive_uncertain = any(
+                _is_uncertain(c) and c.get("claim_importance") == "决定性"
+                for c in claim_results
+            )
+            if has_decisive_uncertain or uncertain_count >= max(1, verified_count):
+                return "局部失实"
+        if bi <= 5:
+            return "属实"
         return "基本属实"
 
     @staticmethod
@@ -335,8 +350,7 @@ class _PlanExecuteMixin:
                 ],
                 max_tokens=300,
                 tools=[SUBMIT_TITLE_LOGIC_TOOL],
-                tool_choice={"type": "required"},
-                **_NO_THINKING,
+                tool_choice={"type": "function", "function": {"name": "submit_title_logic"}},
             )
             tc = (resp.choices[0].message.tool_calls or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
@@ -377,8 +391,7 @@ class _PlanExecuteMixin:
                 ],
                 max_tokens=300,
                 tools=[SUBMIT_HYPE_TOOL],
-                tool_choice={"type": "required"},
-                **_NO_THINKING,
+                tool_choice={"type": "function", "function": {"name": "submit_hype_check"}},
             )
             tc = (resp.choices[0].message.tool_calls or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
@@ -514,8 +527,12 @@ class _PlanExecuteMixin:
                                           if assumption and assumption != "无" else conclusion)
                             claim_obj = {"text": claim_text, "type": "narrative", "importance": "重要"}
                         else:
+                            claim_text = args.get("claim", "")
+                            quoted_from = args.get("quoted_from", "")
+                            if quoted_from:
+                                claim_text = f"{claim_text}（此处为引用{quoted_from}的话，核查该引用是否属实）"
                             claim_obj = {
-                                "text": args.get("claim", ""),
+                                "text": claim_text,
                                 "type": args.get("claim_type", "fact"),
                                 "importance": args.get("claim_importance", "一般"),
                             }
@@ -553,6 +570,9 @@ class _PlanExecuteMixin:
                         hype_check = self._check_hype(_ctx_text, _dbg["stages"])
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(hype_check, ensure_ascii=False)})
+                    else:
+                        messages.append({"role": "tool", "tool_call_id": tc.id,
+                                         "content": '{"error": "unknown tool"}'})
 
                 # submit_verdict terminates the loop (checked AFTER other tools so same-round
                 # analyze_title_logic / analyze_hype calls are executed first)
@@ -571,10 +591,6 @@ class _PlanExecuteMixin:
             # Fallback: no submit_verdict received
             if submit_args is None:
                 submit_args = {
-                    "claim_verification": [
-                        {k: v for k, v in r.items() if not k.startswith("_")}
-                        for r in all_verify_results
-                    ],
                     "investigation_report": {
                         "title_logic_check": title_logic,
                         "hype_check": hype_check,
@@ -584,14 +600,6 @@ class _PlanExecuteMixin:
                     "toxic_review": "",
                     "verdict_text": "",
                 }
-
-            # Merge: ensure all Python-tracked verify results are in submit_verdict
-            submitted_texts = {r.get("claim", "") for r in submit_args.get("claim_verification", [])}
-            for r in all_verify_results:
-                if r.get("claim", "") not in submitted_texts:
-                    submit_args.setdefault("claim_verification", []).append(
-                        {k: v for k, v in r.items() if not k.startswith("_")}
-                    )
 
             # Extract investigation_report fields
             inv = submit_args.get("investigation_report") or {}
@@ -618,12 +626,10 @@ class _PlanExecuteMixin:
                 hype_check = self._check_hype(_ctx_text, _dbg["stages"])
 
             # Deterministic bi calculation — always use Python-tracked results (authoritative 4-layer data)
-            cv_python = [
+            cv = [
                 {k: v for k, v in r.items() if not k.startswith("_")}
                 for r in all_verify_results
             ]
-            # Fall back to re-planner's version only if Python has nothing
-            cv = cv_python or submit_args.get("claim_verification", [])
             bi, risk_level = self._calculate_bi(cv, title_logic, hype_check)
             radar = self._calculate_radar(cv, title_logic, hype_check)
 
