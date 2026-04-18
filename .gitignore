@@ -27,3 +27,29 @@ tests/capture_test_output/
 tests/model_compare_report.md
 tests/text_eval_report.md
 tests/vision_eval_report.md
+
+# test screenshots & transient outputs
+tests/*.png
+tests/*.bmp
+tests/*.jpg
+tests/_*.json
+tests/_*.jpg
+tests/crash_err.txt
+tests/run*_detail.txt
+tests/staged_result*.json
+tests/jianshiguan_result.*
+tests/high_bi_fixture.txt
+tests/process_report.html
+tests/python_ref/
+tests/toutiao_test/
+
+# runtime data
+history.json
+historyCache/
+usage.json
+
+# stray screenshots in repo root
+/*.png
+
+# flutter_app: build artifacts only, no source tracked here
+flutter_app/
