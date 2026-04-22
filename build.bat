@@ -24,8 +24,8 @@ if errorlevel 1 (
 echo.
 echo [2/4] Installing dependencies...
 call .venv\Scripts\activate.bat
-pip install --upgrade pip --quiet
-pip install -r requirements.txt pyinstaller --quiet
+python -m pip install --upgrade pip --quiet
+python -m pip install -r requirements.txt pyinstaller --quiet
 if errorlevel 1 (
     echo [ERROR] pip install failed
     pause & exit /b 1
