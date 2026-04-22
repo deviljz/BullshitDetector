@@ -8,9 +8,9 @@ from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QMessageBox
 from PyQt6.QtGui import QIcon, QAction, QPixmap, QPainter, QColor, QFont
 from PyQt6.QtCore import QObject, pyqtSignal, Qt, QTimer
-import keyboard
 
 from config import SCREENSHOT_HOTKEY, IMAGE_HOTKEY, TEXT_HOTKEY
+from hotkey_win32 import Win32HotkeyManager
 from config.manager import load as load_config, save as save_config, get_active_provider_cfg
 from ai.prompts import TONE_LABELS
 from screenshot.capture import ScreenshotOverlay, image_to_base64
@@ -393,15 +393,6 @@ class BullshitDetectorApp:
         self._result_windows.append(win)
         win.show()
 
-    def _reregister_hotkeys(self) -> None:
-        """定期重新注册热键，修复 Windows 锁屏后热键失效问题。"""
-        try:
-            keyboard.unhook_all()
-            keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
-            keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
-        except Exception:
-            logging.warning("热键重注册失败", exc_info=True)
-
     def run(self):
         api_key = get_active_provider_cfg().get("api_key", "")
         if not api_key or api_key.startswith("YOUR_"):
@@ -413,13 +404,11 @@ class BullshitDetectorApp:
             )
             return 1
 
-        keyboard.add_hotkey(SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
-        keyboard.add_hotkey(IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
-        # 每 60 秒重注册热键，修复 Windows 锁屏/解锁后热键失效问题
-        self._hotkey_timer = QTimer()
-        self._hotkey_timer.setInterval(60_000)
-        self._hotkey_timer.timeout.connect(self._reregister_hotkeys)
-        self._hotkey_timer.start()
+        # Win32 原生全局热键：OS 托管，休眠/唤醒/锁屏自动保持有效
+        self._hotkey_mgr = Win32HotkeyManager(self.app)
+        self._hotkey_mgr.register(1, SCREENSHOT_HOTKEY, lambda: self.signals.trigger_capture.emit())
+        self._hotkey_mgr.register(2, IMAGE_HOTKEY, lambda: self.signals.trigger_unified.emit())
+        self.app.aboutToQuit.connect(self._hotkey_mgr.shutdown)
         self._tray.showMessage(
             "BullshitDetector",
             f"{SCREENSHOT_HOTKEY.upper()} 截图  {IMAGE_HOTKEY.upper()} 图片/文字分析",
