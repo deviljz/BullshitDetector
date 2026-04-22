@@ -139,7 +139,10 @@
 ## 常见问题
 
 **Q: 按热键没反应？**
-A: `keyboard` 库在 Windows 需要管理员权限。右键 `start.bat` → 以管理员身份运行。
+A: 程序使用 Win32 原生 `RegisterHotKey` 注册全局热键，正常情况下启动后即可用，且在系统休眠/唤醒/锁屏后保持有效。若仍无反应，常见原因有：
+1. 热键被其他程序占用（如 `Alt+Q` 被 QQ / 录屏软件抢占）——日志里会看到 `RegisterHotKey 失败 … winerror=1409`
+2. 以管理员权限运行的窗口优先级高于普通权限——若目标窗口（如某游戏）以管理员运行，把 BullshitDetector 也改成管理员方式启动
+3. 修改 `src/config/__init__.py` 里的 `SCREENSHOT_HOTKEY` / `IMAGE_HOTKEY` / `TEXT_HOTKEY` 换一个不冲突的组合
 
 **Q: 鉴屎官显示「搜索失败」？**
 A: DuckDuckGo 国内无法直连，托盘菜单 → 搜索引擎 → 切换到 Tavily。

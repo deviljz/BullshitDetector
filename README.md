@@ -66,13 +66,20 @@ BullshitDetector/
 │   ├── main.py                    # 入口（托盘 + 热键 + 路由）
 │   ├── ai/
 │   │   ├── analyzer.py            # 对外公开接口
-│   │   ├── prompts.py             # 各模式 System Prompt
-│   │   ├── tools.py               # 工具（搜索 / 以图搜图）
+│   │   ├── prompts/               # 各模式 System Prompt（按模式拆分）
+│   │   │   ├── analyze_classic.py # 单发鉴定 prompt
+│   │   │   ├── analyze_staged.py  # Plan-and-Execute 多阶段 prompt
+│   │   │   ├── summary.py / explain.py / source.py / follow_up.py
+│   │   │   └── shared.py          # 共享规则块与 tone 配置
+│   │   ├── tools.py               # 工具定义（搜索 / 以图搜图 / 核查子工具）
 │   │   ├── json_utils.py          # 5 级容错 JSON 解析
 │   │   └── providers/
 │   │       ├── base.py            # BaseLLMProvider 抽象基类
 │   │       ├── openai_compat.py   # OpenAI 兼容 Provider
+│   │       ├── classic_mixin.py   # 单发分析路径
+│   │       ├── plan_mixin.py      # Plan-and-Execute 路径
 │   │       └── __init__.py        # 工厂函数
+│   ├── hotkey_win32.py            # Win32 原生全局热键（替代 keyboard 库）
 │   ├── config/
 │   │   ├── __init__.py            # 热键常量 + 代理环境变量
 │   │   └── manager.py             # 配置读写
@@ -103,7 +110,7 @@ BullshitDetector/
 - **AI** — OpenAI Python SDK（兼容所有 OpenAI 格式供应商）
 - **搜索** — DuckDuckGo (`ddgs`) / Tavily (`tavily-python`)
 - **以图搜图** — Google Cloud Vision API（求出处模式可选增强）
-- **全局热键** — `keyboard` 库
+- **全局热键** — Win32 原生 `RegisterHotKey`（OS 托管，休眠/唤醒/锁屏自动保持有效）
 
 ---
 
