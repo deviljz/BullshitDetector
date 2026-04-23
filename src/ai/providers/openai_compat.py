@@ -77,12 +77,21 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
         self._tone = tone
 
     def _create_with_retry(self, max_retries: int = 5, **kwargs):
-        """Exponential backoff for rate limits and timeouts."""
+        """Exponential backoff for rate limits, timeouts, and transient server errors.
+
+        InternalServerError 覆盖所有 5xx（500/502/503/504），Gemini 在高峰期经常返回
+        503 UNAVAILABLE "Spikes in demand are usually temporary"，属于典型可重试错误。
+        """
         delay = 10
         for attempt in range(max_retries):
             try:
                 return self._client.chat.completions.create(**kwargs)
-            except (openai.RateLimitError, openai.APITimeoutError, openai.APIConnectionError) as e:
+            except (
+                openai.RateLimitError,
+                openai.APITimeoutError,
+                openai.APIConnectionError,
+                openai.InternalServerError,
+            ) as e:
                 if attempt == max_retries - 1:
                     raise
                 wait = delay * (2 ** attempt)
