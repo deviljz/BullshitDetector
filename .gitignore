@@ -53,3 +53,9 @@ usage.json
 
 # flutter_app: build artifacts only, no source tracked here
 flutter_app/
+
+# harness-core runtime artifacts
+.harness/__pycache__/
+.harness/check_cache.json
+/reports/
+.claude/settings.local.json

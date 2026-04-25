@@ -25,5 +25,18 @@
         "repo": "mksglu/claude-context-mode"
       }
     }
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python \"$CLAUDE_PROJECT_DIR/.harness/run_hook.py\" check --on-edit \"$CLAUDE_TOOL_FILE_PATH\" --warn-only  # harness-core"
+          }
+        ]
+      }
+    ]
   }
 }
