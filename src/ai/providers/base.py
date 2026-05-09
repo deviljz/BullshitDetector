@@ -33,6 +33,6 @@ class BaseLLMProvider(ABC):
         ...
 
     @abstractmethod
-    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> tuple[str, dict]:
-        """追问对话。返回 (回复文本, token_dict)。"""
+    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze", thinking: bool = False) -> tuple[str, dict]:
+        """追问对话。返回 (回复文本, token_dict)。thinking=True 时启用模型思考。"""
         ...

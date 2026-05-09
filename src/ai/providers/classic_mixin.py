@@ -415,8 +415,12 @@ class _ClassicMixin:
 
     # ── 追问 ──────────────────────────────────────────────────────────────────
 
-    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze") -> tuple[str, dict]:
-        """Plain-text follow-up conversation (no tools). Returns (response, token_dict)."""
+    def follow_up(self, context_text: str, history: list[dict], question: str, mode: str = "analyze", thinking: bool = False) -> tuple[str, dict]:
+        """Plain-text follow-up conversation (no tools). Returns (response, token_dict).
+
+        thinking=False（默认）：关闭模型思考，避免思考 tokens 吃光 max_tokens 预算导致输出截断。
+        thinking=True：开启 low 级思考，并把 max_tokens 提升到 8192 给思考腾空间。
+        """
         messages = [
             {"role": "system", "content": get_follow_up_prompt(mode)},
             {"role": "user", "content": f"【分析背景】\n{context_text}"},
@@ -430,7 +434,8 @@ class _ClassicMixin:
             resp = self._create_with_retry(
                 model=self._model,
                 messages=messages,
-                max_tokens=4096,
+                max_tokens=8192 if thinking else 4096,
+                reasoning_effort="low" if thinking else "none",
             )
             tin = resp.usage.prompt_tokens if resp.usage else 0
             tout = resp.usage.completion_tokens if resp.usage else 0

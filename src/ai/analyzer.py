@@ -226,11 +226,11 @@ def check_context_fuse(result: dict, images: list = None) -> tuple[bool, int]:
         return False, 0
 
 
-def follow_up_text(result: dict, history: list[dict], question: str, session_id: str | None = None) -> str:
+def follow_up_text(result: dict, history: list[dict], question: str, session_id: str | None = None, thinking: bool = False) -> str:
     """Ask a follow-up question about a previous analysis result."""
     context = _result_to_context(result)
     mode = result.get("_mode", "analyze")
-    text, tokens = _load_provider().follow_up(context, history, question, mode)
+    text, tokens = _load_provider().follow_up(context, history, question, mode, thinking=thinking)
     _record(session_id, "follow_up", tokens)
     return text
 

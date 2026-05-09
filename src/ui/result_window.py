@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QScrollArea,
     QLineEdit,
+    QCheckBox,
 )
 from PyQt6.QtCore import Qt, QPoint, QRect, QSize, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -1675,6 +1676,18 @@ class ResultWindow(QWidget):
         input_row.addWidget(self._chat_send_btn)
         layout.addLayout(input_row)
 
+        self._chat_thinking_cb = QCheckBox("开启思考")
+        self._chat_thinking_cb.setChecked(False)
+        self._chat_thinking_cb.setToolTip(
+            "勾选后追问会启用模型思考过程，回答更深入但耗时更长；\n"
+            "默认关闭——闲聊/简单问答不需要思考。"
+        )
+        self._chat_thinking_cb.setStyleSheet(
+            "QCheckBox { color: #a6adc8; font-size: 11px; padding: 2px 0; }"
+            "QCheckBox::indicator { width: 13px; height: 13px; }"
+        )
+        layout.addWidget(self._chat_thinking_cb)
+
         return panel
 
     def _append_chat_block(self, text: str, is_user: bool) -> QLabel:
@@ -1735,9 +1748,11 @@ class ResultWindow(QWidget):
         else:
             images_for_call = None  # follow_up itself doesn't pass images; fuse only affects context text
 
+        thinking = self._chat_thinking_cb.isChecked()
+
         def _call():
             from ai.analyzer import follow_up_text
-            resp = follow_up_text(result, history, text, session_id=session_id)
+            resp = follow_up_text(result, history, text, session_id=session_id, thinking=thinking)
             self._follow_up_received.emit(text, resp)
 
         threading.Thread(target=_call, daemon=True).start()
