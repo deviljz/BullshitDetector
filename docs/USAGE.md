@@ -114,11 +114,8 @@
 |------|---------|------|
 | **DuckDuckGo**（默认）| ❌ 需要代理/VPN | 无需 Key |
 | **Tavily** | ✅ 直连可用 | 需 API Key，免费 1000 次/月 |
-| **百炼搜索** | ✅ 直连可用 | 需阿里云 DashScope Key，中文优化 |
 
 托盘菜单 → 搜索引擎 → 实时切换，无需重启。
-
-> 百炼搜索使用阿里云 DashScope WebSearch MCP，专为 AI Agent 优化，中文内容质量高。在 [bailian.console.aliyun.com](https://bailian.console.aliyun.com) 获取 API Key，填写到 config.json 的 `bailian_api_key` 字段。如已使用通义千问模型，可复用同一个 Key。
 
 ---
 

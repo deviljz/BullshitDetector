@@ -49,98 +49,12 @@ def _search_tavily(query: str, api_key: str, max_results: int = 5) -> List[dict]
         return [{"error": f"Tavily 搜索失败: {e}"}]
 
 
-def _search_bailian(query: str, api_key: str, max_results: int = 5) -> List[dict]:
-    """百炼 WebSearch MCP 搜索（国内直连，中文优化）。"""
-    try:
-        import requests as _req
-        import json as _json
-
-        url = "https://dashscope.aliyuncs.com/api/v1/mcps/WebSearch/mcp"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        }
-
-        def _post(payload):
-            r = _req.post(url, headers=headers, json=payload, timeout=20)
-            r.raise_for_status()
-            # MCP 可能返回 SSE 流或单条 JSON，统一处理
-            text = r.text.strip()
-            # SSE 格式: "data: {...}\n\n"
-            if text.startswith("data:"):
-                line = [l for l in text.splitlines() if l.startswith("data:")][-1]
-                text = line[len("data:"):].strip()
-            return _json.loads(text)
-
-        # Step 1: Initialize
-        _post({
-            "jsonrpc": "2.0", "id": 0, "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "BullshitDetector", "version": "1.0"},
-            },
-        })
-
-        # Step 2: Notify initialized
-        _req.post(url, headers=headers, json={
-            "jsonrpc": "2.0", "method": "notifications/initialized",
-        }, timeout=10)
-
-        # Step 3: Call search tool
-        resp = _post({
-            "jsonrpc": "2.0", "id": 3, "method": "tools/call",
-            "params": {
-                "name": "bailian_web_search",
-                "arguments": {"query": query, "count": max_results},
-            },
-        })
-
-        # Parse MCP content
-        content = resp.get("result", {}).get("content", [])
-        raw_text = ""
-        for block in content:
-            if block.get("type") == "text":
-                raw_text += block.get("text", "")
-
-        # Content may be JSON array of results, {"pages":[...]}, or plain text
-        try:
-            parsed = _json.loads(raw_text)
-            # Bailian returns {"pages": [...]} format
-            if isinstance(parsed, dict) and "pages" in parsed:
-                items = parsed["pages"]
-            elif isinstance(parsed, list):
-                items = parsed
-            else:
-                items = []
-            if items:
-                return [
-                    {
-                        "title": r.get("title", ""),
-                        "snippet": r.get("snippet", r.get("content", r.get("abstract", ""))),
-                        "url": r.get("url", r.get("link", r.get("pageUrl", ""))),
-                    }
-                    for r in items[:max_results] if isinstance(r, dict)
-                ]
-        except Exception:
-            pass
-
-        # Fallback: return raw text as single result
-        if raw_text:
-            return [{"title": "百炼搜索结果", "snippet": raw_text[:500], "url": ""}]
-        return [{"error": "百炼搜索未返回结果"}]
-
-    except Exception as e:
-        return [{"error": f"百炼搜索失败: {e}"}]
-
-
 _TAVILY_QUOTA_PATTERNS = ("usage limit", "exceeds your plan", "upgrade your plan", "quota exceeded")
 _tavily_quota_exhausted: bool = False  # 运行期 flag：Tavily 配额耗尽后直接走 DDG
 
 
 class SearchProvider:
-    """搜索引擎门面，根据 config 自动选择 DDG / Tavily / 百炼。"""
+    """搜索引擎门面，根据 config 自动选择 DDG / Tavily。"""
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
         global _tavily_quota_exhausted
@@ -165,11 +79,6 @@ class SearchProvider:
                 return results
             # 配额已耗尽，本次运行直接走 DDG
             return _search_ddg(query, max_results)
-        if provider == "bailian":
-            key = cfg.get("bailian_api_key", "")
-            if not key:
-                return [{"error": "百炼 API Key 未配置，请在 config.json 中填写 bailian_api_key"}]
-            return _search_bailian(query, key, max_results)
         return _search_ddg(query, max_results)
 
 
@@ -514,9 +423,6 @@ SUBMIT_CLAIM_RESULT_TOOL = {
         },
     },
 }
-
-# 全局搜索实例
-_search_provider = SearchProvider()
 
 FETCH_URL_TOOL = {
     "type": "function",
