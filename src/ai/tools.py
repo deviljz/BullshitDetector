@@ -518,6 +518,142 @@ SUBMIT_CLAIM_RESULT_TOOL = {
 # 全局搜索实例
 _search_provider = SearchProvider()
 
+FETCH_URL_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "fetch_url",
+        "description": "抓取并读取网页完整正文。当搜索 snippet 不足以判断时使用。返回经正文抽取后的纯文本，最长 8000 字。",
+        "parameters": {
+            "type": "object",
+            "required": ["url"],
+            "properties": {
+                "url": {"type": "string", "description": "完整 URL"},
+                "focus": {
+                    "type": "string",
+                    "description": "聚焦关键词或当前 claim 文本，用于优先返回相关段落。可省略。",
+                    "default": "",
+                },
+            },
+        },
+    },
+}
+
+# URL 正文缓存（模块级共享，存全文未截断版本）
+_url_cache: dict[str, str] = {}
+_URL_CACHE_MAX = 50
+
+# 全局搜索实例
+_search_provider = SearchProvider()
+
+
+def _extract_focus_tokens(focus: str) -> list[str]:
+    """从 focus 文本中提取长度 >= 2 的 token（按空格和标点分割）。"""
+    import re
+    tokens = re.split(r"[\s\.,!?:;\"'\[\]]+", focus)
+    return [t for t in tokens if len(t) >= 2]
+
+
+def _apply_focus_and_truncate(full_text: str, focus: str) -> str:
+    """对全文按 focus 关键词聚焦切片，并硬截断至 8000 字。"""
+    HARD_LIMIT = 8000
+    SUFFIX = "...（已截断）"
+    MIN_FOCUSED = 1000
+
+    if not focus:
+        return full_text[:HARD_LIMIT] + (SUFFIX if len(full_text) > HARD_LIMIT else "")
+
+    # 按段落分割
+    paragraphs = [p for p in full_text.split("\n\n") if p.strip()]
+    if not paragraphs:
+        paragraphs = [p for p in full_text.split("\n") if p.strip()]
+
+    tokens = _extract_focus_tokens(focus)
+    long_tokens = [t for t in tokens if len(t) >= 3]
+
+    # 找命中段落索引
+    hit_indices: list[int] = []
+    if long_tokens:
+        for i, para in enumerate(paragraphs):
+            if any(t in para for t in long_tokens):
+                hit_indices.append(i)
+
+    # 扩展上下文（前后各 1 段）
+    context_indices: set[int] = set()
+    for idx in hit_indices:
+        for offset in (-1, 0, 1):
+            j = idx + offset
+            if 0 <= j < len(paragraphs):
+                context_indices.add(j)
+
+    # 按顺序拼接命中段落
+    selected = "\n\n".join(paragraphs[i] for i in sorted(context_indices))
+
+    # 命中不足时回退头部
+    if len(selected) < MIN_FOCUSED:
+        selected = full_text
+
+    if len(selected) > HARD_LIMIT:
+        return selected[:HARD_LIMIT] + SUFFIX
+    return selected
+
+
+def _fetch_full_text(url: str) -> str:
+    """抓取 URL 并抽取正文，返回全文（无截断）。全失败返回 'fetch failed: ...' 或 'fetch timeout'。"""
+    import httpx
+
+    # --- trafilatura 路径 ---
+    try:
+        import trafilatura
+        html = trafilatura.fetch_url(url, timeout=5)
+        if html:
+            text = trafilatura.extract(html)
+            if text:
+                return text
+    except (TimeoutError, httpx.TimeoutException):
+        return "fetch timeout"
+    except Exception:
+        pass
+
+    # --- BS4 回退路径 ---
+    try:
+        from bs4 import BeautifulSoup
+        resp = httpx.get(url, timeout=5, follow_redirects=True)
+        soup = BeautifulSoup(resp.text, "html.parser")
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        text = soup.get_text(separator="\n", strip=True)
+        if text:
+            return text
+        return "fetch failed: empty content"
+    except (TimeoutError, httpx.TimeoutException):
+        return "fetch timeout"
+    except Exception as e:
+        return f"fetch failed: {e}"
+
+
+def reset_url_cache() -> None:
+    """清空 url_cache，应在每次 analyze 开始时调用，确保缓存随 analyze 生命周期。"""
+    global _url_cache
+    _url_cache.clear()
+
+
+def fetch_url(url: str, focus: str = "") -> str:
+    """抓取 URL 正文并返回（含 focus 聚焦切片和 8000 字截断）。"""
+    global _url_cache
+    if url in _url_cache:
+        full_text = _url_cache[url]
+    else:
+        full_text = _fetch_full_text(url)
+        if not full_text.startswith("fetch failed:") and full_text != "fetch timeout":
+            if len(_url_cache) >= _URL_CACHE_MAX:
+                _url_cache.clear()
+            _url_cache[url] = full_text
+
+    if full_text.startswith("fetch failed:") or full_text == "fetch timeout":
+        return full_text
+
+    return _apply_focus_and_truncate(full_text, focus)
+
 
 def _format_search_results(results: list) -> str:
     lines = []
@@ -543,6 +679,11 @@ def execute_tool(name: str, arguments: dict) -> str:
         query = arguments.get("query", "")
         text, _ = web_search_with_sources(query)
         return text
+
+    if name == "fetch_url":
+        url = arguments.get("url", "")
+        focus = arguments.get("focus", "")
+        return fetch_url(url, focus)
 
     if name == "reverse_image_search":
         if not _current_image_b64:

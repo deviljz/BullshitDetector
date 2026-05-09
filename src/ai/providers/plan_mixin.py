@@ -14,7 +14,7 @@ from ai.prompts import (
 )
 from ai.prompts.shared import _current_date
 from ai.json_utils import parse_json, normalize_result, _risk_level
-from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS, web_search_with_sources
+from ai.tools import PLAN_EXECUTE_TOOLS, PLANNER_TOOLS, web_search_with_sources, FETCH_URL_TOOL
 
 # _NO_THINKING imported from host module to avoid duplication
 _NO_THINKING = {"reasoning_effort": "none"}
@@ -63,7 +63,8 @@ class _PlanExecuteMixin:
     """Plan-and-Execute pipeline methods. No __init__."""
 
     def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
-                      trace: list | None = None) -> dict:
+                      url_snippets: dict | None = None, trace: list | None = None,
+                      extra_system_text: str = "") -> dict:
         """Stage 2: Independent verification of one claim using submit_claim_result tool."""
         from ai.tools import SUBMIT_CLAIM_RESULT_TOOL, TOOLS, execute_tool
 
@@ -80,16 +81,20 @@ class _PlanExecuteMixin:
         if claim_type == "narrative":
             user_text += "\n\n【注意】这是叙事类声明（文章的隐含论点/因果解释），此类声明通常难以直接证伪。若搜不到直接矛盾，fact_layer 应判'? 无法核实'。"
 
+        system_content = get_claim_verify_prompt()
+        if extra_system_text:
+            system_content += "\n\n" + extra_system_text
         messages = [
-            {"role": "system", "content": get_claim_verify_prompt()},
+            {"role": "system", "content": system_content},
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
-        verify_tools = [TOOLS[0], SUBMIT_CLAIM_RESULT_TOOL]  # web_search + submit
+        verify_tools = [TOOLS[0], FETCH_URL_TOOL, SUBMIT_CLAIM_RESULT_TOOL]  # web_search + fetch_url + submit
 
         result = None
         search_log: list = []
         captured_urls: list[str] = []
         tokens: dict = {"input_tokens": 0, "output_tokens": 0}
+        fetch_count = 0
         _t0 = time.monotonic()
 
         for _round in range(5):
@@ -118,12 +123,15 @@ class _PlanExecuteMixin:
 
             tool_msgs = []
             search_tcs = []
+            fetch_tcs = []
             submit_tc = None
             for tc in choice.message.tool_calls:
                 if tc.function.name == "submit_claim_result":
                     submit_tc = tc
                 elif tc.function.name == "web_search":
                     search_tcs.append(tc)
+                elif tc.function.name == "fetch_url":
+                    fetch_tcs.append(tc)
 
             # Execute all web_search calls in this round in parallel
             if search_tcs:
@@ -134,7 +142,26 @@ class _PlanExecuteMixin:
                         if query_cache is not None and query in query_cache:
                             content, urls = query_cache[query]
                         else:
-                            content, urls = web_search_with_sources(query)
+                            from ai.tools import _search_provider, _format_search_results
+                            results = _search_provider.search(query)
+                            if results and "error" in results[0]:
+                                content = results[0]["error"]
+                                urls = []
+                                results = []
+                            elif results:
+                                urls = [r["url"] for r in results if r.get("url")]
+                                content = _format_search_results(results)
+                            else:
+                                content = "未找到相关搜索结果"
+                                urls = []
+                                results = []
+                            if url_snippets is not None:
+                                for r in results:
+                                    u, s = r.get("url", ""), r.get("snippet", "")
+                                    if u and s:
+                                        url_snippets.setdefault(u, []).append(
+                                            {"query": query, "snippet": s}
+                                        )
                             if query_cache is not None:
                                 query_cache[query] = (content, urls)
                         return tc.id, content, urls, {"query": query, "round": _round}
@@ -148,6 +175,24 @@ class _PlanExecuteMixin:
                         if log_entry:
                             search_log.append(log_entry)
 
+            # Execute fetch_url calls serially (budget: max 2 per claim)
+            for tc in fetch_tcs:
+                if fetch_count >= 2:
+                    tool_msgs.append({"role": "tool", "tool_call_id": tc.id,
+                                      "content": "fetch budget exhausted"})
+                    continue
+                try:
+                    args = json.loads(tc.function.arguments)
+                    url = args.get("url", "")
+                    focus = args.get("focus", claim_text)
+                    from ai.tools import fetch_url as _fetch_url
+                    content = _fetch_url(url, focus)
+                    fetch_count += 1
+                    captured_urls.append(url)
+                except Exception as e:
+                    content = f"fetch_url 失败: {e}"
+                tool_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": content})
+
             if submit_tc:
                 try:
                     result = json.loads(submit_tc.function.arguments)
@@ -160,6 +205,33 @@ class _PlanExecuteMixin:
             messages.extend(tool_msgs)
             if result is not None:
                 break
+
+        # 5 轮跑完仍未提交 → force-submit 兜底
+        if result is None and search_log:
+            try:
+                messages.append({
+                    "role": "user",
+                    "content": "搜索轮次已用尽，请基于以上搜索结果直接调用 submit_claim_result。"
+                               "如果证据不足请填 fact_layer='? 无法核实' 并在 note 里说明你看到了什么、还缺什么。",
+                })
+                resp = self._create_with_retry(
+                    model=self._model,
+                    messages=messages,
+                    max_tokens=2000,
+                    tools=[SUBMIT_CLAIM_RESULT_TOOL],
+                    tool_choice="required",
+                    temperature=0,
+                    reasoning_effort="low",
+                )
+                if resp.usage:
+                    tokens["input_tokens"] += resp.usage.prompt_tokens or 0
+                    tokens["output_tokens"] += resp.usage.completion_tokens or 0
+                tc = (resp.choices[0].message.tool_calls or [None])[0]
+                if tc and tc.function.name == "submit_claim_result":
+                    result = json.loads(tc.function.arguments)
+                    result["sources"] = list(dict.fromkeys(captured_urls))
+            except Exception:
+                pass  # force-submit 失败时继续走原有 fallback
 
         if trace is not None:
             trace.append({
@@ -416,6 +488,91 @@ class _PlanExecuteMixin:
                           "elapsed_s": round(time.monotonic() - _t0, 2)})
         return result
 
+    def _build_evidence_pool(self, url_snippets: dict, max_total: int = 4000, max_per_url: int = 600) -> str:
+        """从 url_snippets 构造证据池文本，按 URL 频次排序，限制总长和单 URL 长度。"""
+        import hashlib
+        if not url_snippets:
+            return ""
+        sorted_urls = sorted(url_snippets.keys(), key=lambda u: -len(url_snippets[u]))
+        lines = []
+        total_len = 0
+        seen_hashes: set[str] = set()
+        for url in sorted_urls:
+            if total_len >= max_total:
+                break
+            url_block = [f"- {url}"]
+            url_len = len(url) + 2
+            for entry in url_snippets[url]:
+                snippet = entry["snippet"].strip()
+                query = entry["query"]
+                h = hashlib.md5(snippet.encode("utf-8")).hexdigest()
+                if h in seen_hashes:
+                    continue
+                seen_hashes.add(h)
+                prefix = f'  片段（来自 query "{query}"）：'
+                line = prefix + snippet
+                if url_len + len(line) > max_per_url:
+                    remaining = max_per_url - url_len - len(prefix) - 5
+                    if remaining > 50:
+                        line = prefix + snippet[:remaining] + "..."
+                        url_block.append(line)
+                        url_len = max_per_url
+                    break
+                url_block.append(line)
+                url_len += len(line) + 1
+            block_text = "\n".join(url_block)
+            if total_len + len(block_text) > max_total:
+                break
+            lines.append(block_text)
+            total_len += len(block_text) + 1
+        if not lines:
+            return ""
+        return (
+            "【其他 claim 已搜证据池（可用 fetch_url 读取）】\n"
+            + "\n\n".join(lines)
+            + "\n\n如果你认为某条 URL 可能含有当前 claim 的关键证据，可调用 fetch_url 读取。"
+        )
+
+    def _run_phase2_retry(
+        self,
+        claim_results: list[dict],
+        article_text: str,
+        url_snippets: dict,
+        query_cache: dict,
+        trace: list | None = None,
+    ) -> list[dict]:
+        """phase 2: 串行重核 fact_layer='? 无法核实' 的 claim，注入 evidence pool。"""
+        unverified_indices = [
+            i for i, r in enumerate(claim_results) if r.get("fact_layer") == "? 无法核实"
+        ]
+        if not unverified_indices:
+            return claim_results
+        pool_text = self._build_evidence_pool(url_snippets)
+        if not pool_text:
+            return claim_results
+        results = list(claim_results)
+        for i in unverified_indices:
+            original = results[i]
+            claim = {
+                "text": original.get("claim", ""),
+                "type": original.get("claim_type", "fact"),
+                "importance": original.get("claim_importance", "一般"),
+            }
+            try:
+                new_result = self._verify_claim(
+                    claim,
+                    article_text,
+                    query_cache=query_cache,
+                    url_snippets=url_snippets,
+                    trace=trace,
+                    extra_system_text=pool_text,
+                )
+                if new_result.get("fact_layer") != "? 无法核实":
+                    results[i] = new_result
+            except Exception:
+                pass  # 失败保留原结果
+        return results
+
     def analyze_article_plan_execute(self, text: str, images: list[str] | None = None) -> tuple[dict, dict]:
         """Plan-and-Execute analysis pipeline.
         Planner → parallel verify_claim Executor → Re-planner (max 2 rounds) → submit_verdict → Python bi.
@@ -432,6 +589,9 @@ class _PlanExecuteMixin:
 
             total = {"input_tokens": 0, "output_tokens": 0}
             query_cache: dict = {}
+            url_snippets: dict = {}
+            from ai.tools import reset_url_cache
+            reset_url_cache()  # 每次 analyze 开始时清空 url_cache，确保 cache 随 analyze 生命周期
             all_verify_results: list[dict] = []
             all_search_log: list[dict] = []
             title_logic: dict = {}
@@ -518,7 +678,8 @@ class _PlanExecuteMixin:
                     except Exception:
                         pass
 
-                    def _run_verify(tc, _text=text, _cache=query_cache, _stages=_dbg["stages"]):
+                    def _run_verify(tc, _text=text, _cache=query_cache,
+                                   _url_snippets=url_snippets, _stages=_dbg["stages"]):
                         args = json.loads(tc.function.arguments)
                         if tc.function.name == "identify_narrative":
                             conclusion = args.get("article_conclusion", "")
@@ -536,7 +697,7 @@ class _PlanExecuteMixin:
                                 "type": args.get("claim_type", "fact"),
                                 "importance": args.get("claim_importance", "一般"),
                             }
-                        result = self._verify_claim(claim_obj, _text, _cache, _stages)
+                        result = self._verify_claim(claim_obj, _text, _cache, _url_snippets, _stages)
                         tokens = result.pop("_tokens", {})
                         slog = result.pop("_search_log", []) or []
                         return tc, result, tokens, slog
@@ -624,6 +785,12 @@ class _PlanExecuteMixin:
             # Guarantee hype_check always has a verdict (re-planner may skip analyze_hype)
             if not hype_check.get("verdict"):
                 hype_check = self._check_hype(_ctx_text, _dbg["stages"])
+
+            # phase 2 重核（仅"? 无法核实" claim 触发）
+            if any(r.get("fact_layer") == "? 无法核实" for r in all_verify_results):
+                all_verify_results = self._run_phase2_retry(
+                    all_verify_results, text, url_snippets, query_cache, trace=_dbg.get("stages")
+                )
 
             # Deterministic bi calculation — always use Python-tracked results (authoritative 4-layer data)
             cv = [

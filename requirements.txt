@@ -10,3 +10,6 @@ ddgs>=0.1.0
 tavily-python>=0.3.0
 json-repair>=0.28.0
 playwright>=1.40.0
+trafilatura>=1.8.0
+beautifulsoup4>=4.12.0
+httpx>=0.27.0
