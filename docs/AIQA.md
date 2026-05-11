@@ -33,7 +33,7 @@
 
 ## Step 2：写入 expectations
 
-编辑 `tests/run_vision_eval.py`，在 `EXPECTATIONS` 字典中新增条目：
+编辑 `scripts/run_vision_eval.py`，在 `EXPECTATIONS` 字典中新增条目：
 
 ```python
 "<文件名>.jpg": {
@@ -50,7 +50,7 @@
 
 ```bash
 cd F:/Project/BullshitDetector
-python -X utf8 tests/run_vision_eval.py
+python -X utf8 scripts/run_vision_eval.py
 ```
 
 测试会对每张图调用真实 AI（含 web_search），输出每条结果的 ✅/❌。
@@ -73,7 +73,7 @@ python -X utf8 tests/run_vision_eval.py
 根据 Step 4 结论，修改以下之一或多个：
 
 - `src/ai/prompts.py` — 修补 prompt 漏洞
-- `tests/run_vision_eval.py` — 修正错误标注
+- `scripts/run_vision_eval.py` — 修正错误标注
 - 回到 Step 3 重新运行，直到全部 ✅
 
 ---
@@ -89,6 +89,7 @@ python -X utf8 tests/run_vision_eval.py
 ```
 tests/
   fixtures/          ← 放置待鉴定图片
+scripts/
   run_vision_eval.py ← 自动化测试主文件（含 EXPECTATIONS 字典）
 src/
   ai/

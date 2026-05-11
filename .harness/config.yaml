@@ -44,31 +44,8 @@ targets:
     ignore_paths:
       - "**/*.pyc"
       - "**/__pycache__/**"
-      # UI 测试会弹 Qt 窗口抢焦点，兜底防线（主过滤已移到 trigger_on_edit_paths）
-      - "tests/ui_*.py"
-      - "tests/dialog_*.py"
-      - "tests/unified_input*.py"
-      - "tests/result_window_test.py"
-      - "tests/loading_overlay_test.py"
-      - "tests/stamp_*.py"
-      - "tests/chat_*.py"
-      - "tests/force_show_test.py"
-      - "tests/mode_btn_*.py"
-      - "tests/startup_opacity_test.py"
-      - "tests/fullscreen_*.py"
-      - "tests/self_test.py"
-      - "tests/flutter_*.py"
-      - "tests/python_ref_capture.py"
-      # 会实际调 LLM API 消耗配额的重放脚本
-      - "tests/replay_*.py"
-      # 非自动化测试脚本（手动跑 / 生成 fixture 用）
-      - "tests/generate_*.py"
-      - "tests/capture_*.py"
-      - "tests/accuracy_*.py"
-      - "tests/run_*.py"
-      - "tests/compare_models.py"
-      - "tests/saucenao_test.py"
-      - "tests/usage_window*.py"
+      # 非测试脚本已搬到 scripts/，pytest 自动不扫；保留兜底防止误放
+      - "scripts/**"
     core_modules:
       - ai.analyzer
       - ai.providers.openai_compat
