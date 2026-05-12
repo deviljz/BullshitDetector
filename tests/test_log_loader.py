@@ -192,14 +192,19 @@ def test_detect_dev_replays_marks_clustered_titles():
     assert out[3]["is_dev_replay"] is False  # 单 Y title
 
 
-def test_detect_dev_replays_no_history_fallback():
-    """空 title + claim_count=0 + plan_execute → 兜底标记为 dev replay。"""
+def test_detect_dev_replays_empty_title_not_marked():
+    """空 title 单独出现不应被标 dev replay（避免误标早期无 history 集成的真实 case）。"""
     cases = [
         {"title": "", "timestamp": "2026-05-11T01:00:00+00:00", "claim_count": 0, "path": "plan_execute",
          "is_dev_replay": False},
+        {"title": "", "timestamp": "2026-05-11T02:00:00+00:00", "claim_count": 0, "path": "plan_execute",
+         "is_dev_replay": False},
+        {"title": "", "timestamp": "2026-05-11T03:00:00+00:00", "claim_count": 0, "path": "plan_execute",
+         "is_dev_replay": False},
     ]
     out = detect_dev_replays(cases)
-    assert out[0]["is_dev_replay"] is True
+    # 即使空 title 多次出现，也不应标记（避免误判早期真实 case）
+    assert all(not c["is_dev_replay"] for c in out)
 
 
 def test_thresholds_param_affects_outliers():
@@ -215,9 +220,9 @@ def test_thresholds_param_affects_outliers():
 
 
 def test_collect_cases_exclude_dev_replay():
-    """exclude_dev_replay=True 时过滤掉 dev replay case。"""
+    """exclude_dev_replay=True 时过滤掉 dev replay case（需同 title 聚簇）。"""
     with tempfile.TemporaryDirectory() as td:
-        # 3 个同时间 dev replay log（空 history） + 1 个真实
+        # 3 个同 title 的 dev replay + 1 个不同 title 的真实
         for i in range(3):
             log = _make_log(f"dev_{i}", f"2026-05-11T0{i+1}:00:00+00:00")
             with open(os.path.join(td, f"dev_{i}.json"), "w", encoding="utf-8") as f:
@@ -225,9 +230,15 @@ def test_collect_cases_exclude_dev_replay():
         real = _make_log("real_1", "2026-05-11T05:00:00+00:00")
         with open(os.path.join(td, "real.json"), "w", encoding="utf-8") as f:
             json.dump(real, f)
+        # 3 个 dev 用同 title，real 用不同 title
         hist_path = os.path.join(td, "history.json")
         with open(hist_path, "w", encoding="utf-8") as f:
-            json.dump([_make_history("real_1")], f)
+            json.dump([
+                _make_history("dev_0", title="dev_replay_target"),
+                _make_history("dev_1", title="dev_replay_target"),
+                _make_history("dev_2", title="dev_replay_target"),
+                _make_history("real_1", title="real_unique_title"),
+            ], f)
 
         since = datetime(2026, 5, 1, tzinfo=timezone.utc)
         kept = collect_cases(since, logs_dir=td, history_path=hist_path,

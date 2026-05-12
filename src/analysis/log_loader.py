@@ -136,18 +136,23 @@ def per_case_summary(log_entry: dict, history_entry: dict | None,
         bullshit_index = header.get("bullshit_index")
         bullshit_nature = header.get("bullshit_nature", "") or ""
         for c in result.get("claim_verification", []) or []:
+            sources = c.get("sources", []) or []
             claim_summaries.append({
                 "claim": (c.get("claim") or "")[:120],
                 "verdict": c.get("verdict", ""),
                 "fact_layer": c.get("fact_layer", ""),
-                "sources_count": len(c.get("sources", []) or []),
+                "sources_count": len(sources),
                 "note": (c.get("note") or "")[:200],
             })
         search_log = result.get("_search_log", []) or []
         all_urls = set()
         for c in result.get("claim_verification", []) or []:
             for u in (c.get("sources") or []):
-                all_urls.add(u)
+                # 兼容旧 history：sources 元素可能是 str 也可能是 {"url": ..., "title": ...} dict
+                if isinstance(u, dict):
+                    u = u.get("url", "")
+                if isinstance(u, str) and u:
+                    all_urls.add(u)
         url_snippets_count = len(all_urls)
 
     queries_by_round: dict = {}
@@ -216,29 +221,24 @@ def per_case_summary(log_entry: dict, history_entry: dict | None,
 def detect_dev_replays(cases: list[dict], cluster_window_hours: int = 24,
                        min_cluster_size: int = 3) -> list[dict]:
     """启发式标记 dev replay：
-    - 24h 内同 title（含空 title）出现 >= min_cluster_size 次 → 全组标记
-    - 空 title + 无 history（claim_count=0）也是强信号
+    - **仅在非空 title 且 24h 内出现 >= min_cluster_size 次时标记**
+    - 空 title 不参与聚簇（很多早期真实 case 缺 history 集成，title 为空但不是 dev replay）
     返回原 list（in-place 修改 is_dev_replay 字段）。
     """
-    # 1) 按 title 分桶，时间排序
     by_title: dict[str, list[dict]] = defaultdict(list)
     for c in cases:
-        key = c.get("title") or "(no-title)"
-        by_title[key].append(c)
-    # 2) 对每桶内按 timestamp 滑窗
+        title = c.get("title") or ""
+        if not title:
+            continue  # 空 title 不参与聚簇（避免误标早期真实 case）
+        by_title[title].append(c)
     window = timedelta(hours=cluster_window_hours)
     for title, items in by_title.items():
         items.sort(key=lambda x: x.get("timestamp", ""))
-        timestamps = []
-        for c in items:
-            t = _parse_ts(c.get("timestamp", ""))
-            timestamps.append(t)
-        # 滑动窗口找 cluster
+        timestamps = [_parse_ts(c.get("timestamp", "")) for c in items]
         marked_idx: set[int] = set()
         for i in range(len(items)):
             if timestamps[i] is None:
                 continue
-            # 找窗口内有多少个
             j_end = i
             for j in range(i, len(items)):
                 if timestamps[j] is None:
@@ -252,10 +252,6 @@ def detect_dev_replays(cases: list[dict], cluster_window_hours: int = 24,
                     marked_idx.add(k)
         for k in marked_idx:
             items[k]["is_dev_replay"] = True
-    # 3) 兜底：无 history + 空 title + plan_execute → 也算 dev replay
-    for c in cases:
-        if (not c["title"]) and c["claim_count"] == 0 and c["path"] == "plan_execute":
-            c["is_dev_replay"] = True
     return cases
 
 
