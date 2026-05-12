@@ -128,8 +128,8 @@ class TestFetchUrlDispatched(unittest.TestCase):
         # Cleanup
         tools_mod._url_cache.pop(url, None)
 
-    def test_fetch_budget_exhausted_on_third_call(self):
-        """Third fetch_url in same claim gets 'fetch budget exhausted', underlying fetch not called."""
+    def test_fetch_budget_exhausted_on_second_call(self):
+        """Second successful fetch_url gets 'fetch budget exhausted' (budget=1, success-only counting)."""
         provider = self._build_mixin()
 
         fetch_tcs = [
@@ -139,7 +139,6 @@ class TestFetchUrlDispatched(unittest.TestCase):
         submit = _submit_tc(fact_layer="? 无法核实", tc_id="s1")
 
         round_idx = [0]
-        # Round 0: all 3 fetch calls at once; Round 1: submit
         def fake_create(**kw):
             r = round_idx[0]
             round_idx[0] += 1
@@ -151,7 +150,7 @@ class TestFetchUrlDispatched(unittest.TestCase):
 
         def counting_fetch(url, focus=""):
             fetch_call_count[0] += 1
-            return f"content of {url}"
+            return f"content of {url}"  # 成功内容（不是 "fetch failed:" 开头）→ 消耗预算
 
         with patch.object(provider, "_create_with_retry", side_effect=lambda *a, **kw: fake_create(**kw)):
             with patch("ai.tools.fetch_url", side_effect=counting_fetch) as mock_fetch:
@@ -161,13 +160,9 @@ class TestFetchUrlDispatched(unittest.TestCase):
                         "background",
                     )
 
-        # Only 2 real fetch calls; 3rd was budget-exhausted
-        self.assertEqual(fetch_call_count[0], 2)
-
-        # Find the tool messages that went back: look at messages passed in round 1
-        # We verify by checking that mock_fetch was called exactly twice
-        calls = mock_fetch.call_args_list
-        self.assertEqual(len(calls), 2)
+        # 预算=1：仅第 1 次成功 fetch 被实际调用；后续 2 个都是 "fetch budget exhausted"
+        self.assertEqual(fetch_call_count[0], 1)
+        self.assertEqual(len(mock_fetch.call_args_list), 1)
 
 
 class TestUrlSnippetsAccumulation(unittest.TestCase):

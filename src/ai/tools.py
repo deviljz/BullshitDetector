@@ -448,6 +448,10 @@ FETCH_URL_TOOL = {
 _url_cache: dict[str, str] = {}
 _URL_CACHE_MAX = 50
 
+# 长度上限
+_FETCH_TRUNCATE = 4000   # fetch_url 返回的中文正文字数上限（含 focus 切片）
+_SNIPPET_TRUNCATE = 300  # web_search 单条 snippet 字数上限
+
 # 全局搜索实例
 _search_provider = SearchProvider()
 
@@ -460,8 +464,8 @@ def _extract_focus_tokens(focus: str) -> list[str]:
 
 
 def _apply_focus_and_truncate(full_text: str, focus: str) -> str:
-    """对全文按 focus 关键词聚焦切片，并硬截断至 8000 字。"""
-    HARD_LIMIT = 8000
+    """对全文按 focus 关键词聚焦切片，并硬截断至 _FETCH_TRUNCATE 字。"""
+    HARD_LIMIT = _FETCH_TRUNCATE
     SUFFIX = "...（已截断）"
     MIN_FOCUSED = 1000
 
@@ -583,7 +587,10 @@ def fetch_url(url: str, focus: str = "") -> str:
 def _format_search_results(results: list) -> str:
     lines = []
     for i, r in enumerate(results, 1):
-        lines.append(f"{i}. {r['title']}\n   {r['snippet']}\n   来源: {r['url']}")
+        snippet = r.get("snippet", "") or ""
+        if len(snippet) > _SNIPPET_TRUNCATE:
+            snippet = snippet[:_SNIPPET_TRUNCATE] + "..."
+        lines.append(f"{i}. {r['title']}\n   {snippet}\n   来源: {r['url']}")
     return "\n".join(lines)
 
 

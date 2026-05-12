@@ -54,15 +54,28 @@ def test_all_fail_returns_error():
     assert result.startswith("fetch failed:")
 
 
-# Case 4: 超过 8000 字时截断
-def test_hard_truncate_8000():
-    long_text = "A" * 9000
+# Case 4: 超过 4000 字时截断
+def test_hard_truncate_4000():
+    long_text = "A" * 5000
     with patch("httpx.get", return_value=_mock_resp("<html/>")), \
          patch("trafilatura.extract", return_value=long_text):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/long")
-    assert len(result) <= 8000 + len("...（已截断）")
+    assert len(result) <= 4000 + len("...（已截断）")
     assert "已截断" in result
+
+
+# Case 4b: snippet 超过 300 字时截断（_format_search_results）
+def test_snippet_truncated_to_300():
+    from src.ai.tools import _format_search_results
+    long_snippet = "测试" * 200  # 400 字
+    results = [{"title": "T", "snippet": long_snippet, "url": "https://x.com"}]
+    out = _format_search_results(results)
+    # 截断后 snippet 应 ≤ 300 字 + "..."
+    # 单独提取 snippet 行：format 是 "1. T\n   <snippet>\n   来源: ..."
+    snippet_line = out.split("\n")[1].strip()  # "<snippet>"
+    assert len(snippet_line) <= 303  # 300 + "..."
+    assert snippet_line.endswith("...")
 
 
 # Case 5: URL cache 命中，httpx.get 只调一次

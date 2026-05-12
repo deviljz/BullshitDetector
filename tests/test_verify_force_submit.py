@@ -62,14 +62,10 @@ class _FakeProvider(_PlanExecuteMixin):
 # ---------------------------------------------------------------------------
 
 def test_force_submit_triggers_and_succeeds():
-    """5 rounds only return web_search; 6th call returns submit_claim_result."""
+    """5 rounds use distinct queries (no repeat-stoploss), 6th call returns submit_claim_result."""
     provider = _FakeProvider()
 
-    # Rounds 1-5: only web_search tool_call (no submit)
-    search_tc = _make_tool_call("web_search", {"query": "some query"}, tc_id="s1")
-    search_resp = _make_resp([search_tc])
-
-    # Round 6 (force-submit): submit_claim_result
+    # Rounds 1-5: web_search with UNIQUE query each round to avoid repeat-query early termination
     submit_args = {
         "fact_layer": "? 无法核实",
         "note": "基于已搜信息：找到 X 但不直接对应",
@@ -83,12 +79,14 @@ def test_force_submit_triggers_and_succeeds():
     def fake_create(**kwargs):
         call_count["n"] += 1
         if call_count["n"] <= 5:
-            return search_resp
+            tc = _make_tool_call("web_search", {"query": f"unique_query_{call_count['n']}"}, tc_id=f"s{call_count['n']}")
+            return _make_resp([tc])
         return force_resp
 
-    # Patch web_search_with_sources to avoid real network calls
-    with patch("ai.providers.plan_mixin.web_search_with_sources",
-               return_value=("搜索结果内容", ["http://example.com"])):
+    with patch("ai.tools._search_provider") as mock_provider:
+        mock_provider.search.return_value = [
+            {"title": "T", "snippet": "snip", "url": "http://example.com"},
+        ]
         provider._create_with_retry = fake_create
         result = provider._verify_claim("某个声明", "文章背景")
 
@@ -97,6 +95,106 @@ def test_force_submit_triggers_and_succeeds():
         f"note should be from model, got: {result['note']!r}"
     )
     assert call_count["n"] == 6, f"Expected 6 calls (5 rounds + force), got {call_count['n']}"
+
+
+# ---------------------------------------------------------------------------
+# Case 1b: A — repeat query stop-loss
+# ---------------------------------------------------------------------------
+
+def test_repeat_query_triggers_early_termination():
+    """Round 1 and round 2 use SAME query → loop breaks after round 2, no rounds 3-5."""
+    provider = _FakeProvider()
+
+    submit_args = {
+        "fact_layer": "? 无法核实",
+        "note": "停损后 force-submit 给出的结论",
+        "effective_sources": 0,
+    }
+    submit_tc = _make_tool_call("submit_claim_result", submit_args, tc_id="sub1")
+    force_resp = _make_resp([submit_tc])
+
+    call_count = {"n": 0}
+
+    def fake_create(**kwargs):
+        call_count["n"] += 1
+        # Round 1 and round 2 emit the SAME query → repeat detected at round 2
+        if call_count["n"] <= 2:
+            tc = _make_tool_call("web_search", {"query": "duplicate query"}, tc_id=f"s{call_count['n']}")
+            return _make_resp([tc])
+        # Force-submit (round 3 in this scenario after early break)
+        return force_resp
+
+    with patch("ai.tools._search_provider") as mock_provider:
+        mock_provider.search.return_value = [
+            {"title": "T", "snippet": "snip", "url": "http://example.com"},
+        ]
+        provider._create_with_retry = fake_create
+        result = provider._verify_claim("某个声明", "文章背景")
+
+    # Expected: round 1 (call 1), round 2 detects repeat (call 2), break, force-submit (call 3)
+    # If stop-loss not working, would go up to call 6 (5 rounds + force-submit)
+    assert call_count["n"] == 3, (
+        f"Expected 3 calls (round 1, round 2 with repeat detect, force-submit), "
+        f"got {call_count['n']}—stop-loss broken"
+    )
+    assert result["note"] == "停损后 force-submit 给出的结论"
+
+
+# ---------------------------------------------------------------------------
+# Case 1c: B' — fetch failure does NOT count against budget
+# ---------------------------------------------------------------------------
+
+def test_fetch_failure_not_counted_in_budget():
+    """fetch_url 返回 'fetch failed: HTTP 403' 不计入预算，模型可继续 fetch 下一 URL。"""
+    provider = _FakeProvider()
+
+    submit_args = {"fact_layer": "✓ 存在", "note": "fetched ok"}
+    submit_tc = _make_tool_call("submit_claim_result", submit_args, tc_id="sub1")
+    submit_resp = _make_resp([submit_tc])
+
+    fetch_tc_calls = []
+
+    call_count = {"n": 0}
+
+    def fake_create(**kwargs):
+        call_count["n"] += 1
+        # Round 1: fetch url1 (will fail)
+        # Round 2: fetch url2 (will fail)
+        # Round 3: fetch url3 (succeeds) — but model should still be allowed to fetch (budget not consumed)
+        # Round 4: submit_claim_result
+        if call_count["n"] == 1:
+            tc = _make_tool_call("fetch_url", {"url": "http://fail1.com"}, tc_id="f1")
+            fetch_tc_calls.append("f1")
+            return _make_resp([tc])
+        if call_count["n"] == 2:
+            tc = _make_tool_call("fetch_url", {"url": "http://fail2.com"}, tc_id="f2")
+            fetch_tc_calls.append("f2")
+            return _make_resp([tc])
+        if call_count["n"] == 3:
+            tc = _make_tool_call("fetch_url", {"url": "http://success.com"}, tc_id="f3")
+            fetch_tc_calls.append("f3")
+            return _make_resp([tc])
+        return submit_resp
+
+    # Mock fetch_url: first two fail, third succeeds
+    fetch_call_count = {"n": 0}
+
+    def mock_fetch_url(url, focus=""):
+        fetch_call_count["n"] += 1
+        if fetch_call_count["n"] <= 2:
+            return "fetch failed: HTTP 403"
+        return "成功抓到的正文"
+
+    with patch("ai.tools.fetch_url", side_effect=mock_fetch_url):
+        provider._create_with_retry = fake_create
+        result = provider._verify_claim("某个声明", "文章背景")
+
+    # All 3 fetches should happen (first 2 fail, 3rd success consumes budget)
+    assert fetch_call_count["n"] == 3, (
+        f"Expected 3 fetch attempts (2 fail + 1 success), got {fetch_call_count['n']}—"
+        f"failed fetches were counted against budget"
+    )
+    assert result["fact_layer"] == "✓ 存在"
 
 
 # ---------------------------------------------------------------------------

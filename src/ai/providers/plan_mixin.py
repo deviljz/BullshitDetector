@@ -144,6 +144,7 @@ class _PlanExecuteMixin:
         captured_urls: list[str] = []
         tokens: dict = {"input_tokens": 0, "output_tokens": 0}
         fetch_count = 0
+        seen_queries: set[str] = set()  # 跨轮 query 跟踪：本轮 query 已被前轮搜过则停损
         _t0 = time.monotonic()
 
         for _round in range(max_rounds):
@@ -181,6 +182,19 @@ class _PlanExecuteMixin:
                     search_tcs.append(tc)
                 elif tc.function.name == "fetch_url":
                     fetch_tcs.append(tc)
+
+            # A: 重复 query 停损检测——本轮任一 query 已在前轮搜过则标记，本轮处理完后跳出
+            _repeat_detected = False
+            if search_tcs:
+                for tc in search_tcs:
+                    try:
+                        args = json.loads(tc.function.arguments)
+                        q = args.get("query", "")
+                        if q and q in seen_queries:
+                            _repeat_detected = True
+                            break
+                    except Exception:
+                        pass
 
             # Execute all web_search calls in this round in parallel
             if search_tcs:
@@ -223,10 +237,14 @@ class _PlanExecuteMixin:
                         captured_urls.extend(urls)
                         if log_entry:
                             search_log.append(log_entry)
+                            q = log_entry.get("query", "")
+                            if q:
+                                seen_queries.add(q)
 
-            # Execute fetch_url calls serially (budget: max 2 per claim)
+            # Execute fetch_url calls serially
+            # B': 预算 = "1 次成功 fetch"，失败/超时不计入
             for tc in fetch_tcs:
-                if fetch_count >= 2:
+                if fetch_count >= 1:
                     tool_msgs.append({"role": "tool", "tool_call_id": tc.id,
                                       "content": "fetch budget exhausted"})
                     continue
@@ -236,8 +254,9 @@ class _PlanExecuteMixin:
                     focus = args.get("focus", claim_text)
                     from ai.tools import fetch_url as _fetch_url
                     content = _fetch_url(url, focus)
-                    fetch_count += 1
-                    captured_urls.append(url)
+                    if not (content.startswith("fetch failed:") or content == "fetch timeout"):
+                        fetch_count += 1
+                        captured_urls.append(url)
                 except Exception as e:
                     content = f"fetch_url 失败: {e}"
                 tool_msgs.append({"role": "tool", "tool_call_id": tc.id, "content": content})
@@ -253,6 +272,9 @@ class _PlanExecuteMixin:
 
             messages.extend(tool_msgs)
             if result is not None:
+                break
+            # A: 重复 query 命中 → 跳出 search 循环，走 force-submit 兜底
+            if _repeat_detected:
                 break
 
         # 5 轮跑完仍未提交 → force-submit 兜底
