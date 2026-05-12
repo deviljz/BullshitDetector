@@ -175,7 +175,11 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
             _stage = make_stage(stage_name, messages)
             trace.append(_stage)
 
-        _temp_kwargs = {"temperature": temperature} if temperature is not None else {}
+        # 默认禁 thinking：Gemini 2.5 Flash 开 thinking 会吃 max_tokens 预算导致输出截断。
+        # 调用方需要思考时通过 extra_create_kwargs={"reasoning_effort": "low"} 覆盖。
+        _temp_kwargs: dict = {"reasoning_effort": "none"}
+        if temperature is not None:
+            _temp_kwargs["temperature"] = temperature
         if extra_create_kwargs:
             _temp_kwargs.update(extra_create_kwargs)
         for i in range(rounds):
@@ -238,6 +242,7 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
                 messages=messages,
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
+                **_temp_kwargs,  # 继承外层 reasoning_effort / temperature
             )
             if resp.usage:
                 total_in += resp.usage.prompt_tokens or 0
@@ -254,8 +259,13 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
     def _run_single(
         self, system_prompt: str, user_content, max_tokens: int, defaults: dict,
         trace: list | None = None, stage_name: str = "single_call",
+        reasoning_effort: str = "none",
     ) -> tuple[dict, dict]:
-        """Single call without tool loop. Returns (result_dict, token_dict)."""
+        """Single call without tool loop. Returns (result_dict, token_dict).
+
+        默认 reasoning_effort="none"——summary / extract 类任务 thinking 没用且
+        会吃 max_tokens 预算导致输出截断（Gemini 2.5 Flash 默认开 thinking）。
+        """
         try:
             content = user_content if isinstance(user_content, list) else [{"type": "text", "text": user_content}]
             resp = self._create_with_retry(
@@ -266,6 +276,7 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
                 ],
                 max_tokens=max_tokens,
                 response_format={"type": "json_object"},
+                reasoning_effort=reasoning_effort,
             )
             tin = resp.usage.prompt_tokens if resp.usage else 0
             tout = resp.usage.completion_tokens if resp.usage else 0
