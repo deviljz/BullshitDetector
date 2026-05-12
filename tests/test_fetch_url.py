@@ -1,7 +1,19 @@
-"""fetch_url 工具单元测试（8 cases）"""
+"""fetch_url 工具单元测试（10 cases）
+
+实现使用单次 httpx.get 拿 HTML + 浏览器 UA，再交 trafilatura.extract 抽正文，
+失败回退 BS4。测试相应地 mock httpx.get 和 trafilatura.extract。
+"""
 
 import pytest
 from unittest.mock import patch, MagicMock
+
+
+def _mock_resp(text: str = "<html/>", status: int = 200):
+    """构造 httpx.get 的 mock Response"""
+    r = MagicMock()
+    r.status_code = status
+    r.text = text
+    return r
 
 
 # 每个 test 前清空 cache，保证隔离
@@ -13,36 +25,30 @@ def clear_cache():
     _url_cache.clear()
 
 
-# Case 1: trafilatura 路径成功
+# Case 1: trafilatura 抽正文成功路径
 def test_trafilatura_success():
-    html = "<html><body><p>正文内容丰富全面</p></body></html>"
     extracted = "正文内容丰富全面"
-    with patch("trafilatura.fetch_url", return_value=html) as mock_fetch, \
+    with patch("httpx.get", return_value=_mock_resp("<html><p>x</p></html>")) as mock_get, \
          patch("trafilatura.extract", return_value=extracted):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/article")
     assert "正文内容丰富全面" in result
-    assert mock_fetch.call_count == 1
+    assert mock_get.call_count == 1
 
 
 # Case 2: trafilatura 抽不到正文时回退 BS4
 def test_fallback_to_bs4():
     html_content = "<html><body><p>BS4回退正文段落</p></body></html>"
-    mock_resp = MagicMock()
-    mock_resp.text = html_content
-
-    with patch("trafilatura.fetch_url", return_value="<html/>"), \
-         patch("trafilatura.extract", return_value=None), \
-         patch("httpx.get", return_value=mock_resp):
+    with patch("httpx.get", return_value=_mock_resp(html_content)), \
+         patch("trafilatura.extract", return_value=None):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/fallback")
     assert "BS4回退正文段落" in result
 
 
-# Case 3: 全失败返回 fetch failed
+# Case 3: httpx 异常 → fetch failed
 def test_all_fail_returns_error():
-    with patch("trafilatura.fetch_url", side_effect=Exception("traf error")), \
-         patch("httpx.get", side_effect=Exception("httpx error")):
+    with patch("httpx.get", side_effect=Exception("network error")):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/broken")
     assert result.startswith("fetch failed:")
@@ -51,7 +57,7 @@ def test_all_fail_returns_error():
 # Case 4: 超过 8000 字时截断
 def test_hard_truncate_8000():
     long_text = "A" * 9000
-    with patch("trafilatura.fetch_url", return_value="<html/>"), \
+    with patch("httpx.get", return_value=_mock_resp("<html/>")), \
          patch("trafilatura.extract", return_value=long_text):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/long")
@@ -59,20 +65,20 @@ def test_hard_truncate_8000():
     assert "已截断" in result
 
 
-# Case 5: URL cache 命中，trafilatura.fetch_url 只调一次
+# Case 5: URL cache 命中，httpx.get 只调一次
 def test_url_cache_hit():
-    html = "<html><body><p>缓存测试正文</p></body></html>"
-    with patch("trafilatura.fetch_url", return_value=html) as mock_fetch, \
+    with patch("httpx.get", return_value=_mock_resp("<html/>")) as mock_get, \
          patch("trafilatura.extract", return_value="缓存测试正文"):
         from src.ai.tools import fetch_url
         fetch_url("https://example.com/cached")
         fetch_url("https://example.com/cached")
-    assert mock_fetch.call_count == 1
+    assert mock_get.call_count == 1
 
 
-# Case 6: 超时返回 fetch timeout
+# Case 6: httpx.TimeoutException → fetch timeout
 def test_timeout_returns_fetch_timeout():
-    with patch("trafilatura.fetch_url", side_effect=TimeoutError("timed out")):
+    import httpx
+    with patch("httpx.get", side_effect=httpx.TimeoutException("timed out")):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/timeout")
     assert result == "fetch timeout"
@@ -90,7 +96,7 @@ def test_focus_hit_paragraphs():
         "第五段特有标记" + filler,
     ]
     full_text = "\n\n".join(paragraphs)
-    with patch("trafilatura.fetch_url", return_value="<html/>"), \
+    with patch("httpx.get", return_value=_mock_resp("<html/>")), \
          patch("trafilatura.extract", return_value=full_text):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/focus", focus="全球通史 修改")
@@ -112,7 +118,7 @@ def test_focus_no_hit_fallback_head():
         "第五段内容，关于文化交流活动。",
     ]
     full_text = "\n\n".join(paragraphs)
-    with patch("trafilatura.fetch_url", return_value="<html/>"), \
+    with patch("httpx.get", return_value=_mock_resp("<html/>")), \
          patch("trafilatura.extract", return_value=full_text):
         from src.ai.tools import fetch_url
         result = fetch_url("https://example.com/nofocus", focus="量子纠缠超弦理论")
@@ -120,23 +126,32 @@ def test_focus_no_hit_fallback_head():
     assert "第一段内容" in result
 
 
-# Case 9: httpx.TimeoutException 在 BS4 回退路径上正确返回 fetch timeout
-def test_httpx_timeout_returns_fetch_timeout():
-    import httpx
-    # trafilatura 失败让流程走 BS4 回退；httpx.get 抛 TimeoutException 应被识别为 timeout
-    with patch("trafilatura.fetch_url", return_value=None), \
-         patch("httpx.get", side_effect=httpx.TimeoutException("read timeout")):
+# Case 9: HTTP 4xx/5xx → fetch failed: HTTP <code>
+def test_http_error_status_returns_fetch_failed():
+    with patch("httpx.get", return_value=_mock_resp("<html/>", status=403)):
         from src.ai.tools import fetch_url
-        result = fetch_url("https://example.com/timeout")
-    assert result == "fetch timeout"
+        result = fetch_url("https://example.com/forbidden")
+    assert result == "fetch failed: HTTP 403"
 
 
 # Case 10: reset_url_cache 清空缓存
 def test_reset_url_cache_clears_entries():
     from src.ai.tools import fetch_url, reset_url_cache, _url_cache
-    with patch("trafilatura.fetch_url", return_value="<html/>"), \
+    with patch("httpx.get", return_value=_mock_resp("<html/>")), \
          patch("trafilatura.extract", return_value="正文内容"):
         fetch_url("https://example.com/a")
     assert len(_url_cache) >= 1
     reset_url_cache()
     assert len(_url_cache) == 0
+
+
+# Case 11: 浏览器 UA 实际传给 httpx.get（防反爬关键）
+def test_browser_ua_passed_to_httpx():
+    with patch("httpx.get", return_value=_mock_resp("<html/>")) as mock_get, \
+         patch("trafilatura.extract", return_value="ok"):
+        from src.ai.tools import fetch_url
+        fetch_url("https://example.com/ua_check")
+    _args, kwargs = mock_get.call_args
+    headers = kwargs.get("headers", {})
+    assert "User-Agent" in headers
+    assert "Mozilla" in headers["User-Agent"]

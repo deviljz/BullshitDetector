@@ -503,36 +503,55 @@ def _apply_focus_and_truncate(full_text: str, focus: str) -> str:
     return selected
 
 
+# 浏览器 UA — trafilatura 默认 UA 会被 163/openresty 等反爬 403，必须伪装
+_BROWSER_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0.0.0 Safari/537.36"
+    ),
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+}
+
+
 def _fetch_full_text(url: str) -> str:
     """抓取 URL 并抽取正文，返回全文（无截断）。全失败返回 'fetch failed: ...' 或 'fetch timeout'。"""
     import httpx
 
-    # --- trafilatura 路径 ---
+    # 单次 httpx.get 拿 HTML，trafilatura/BS4 共用结果，避免重复请求
     try:
-        import trafilatura
-        html = trafilatura.fetch_url(url, timeout=5)
-        if html:
-            text = trafilatura.extract(html)
-            if text:
-                return text
+        resp = httpx.get(url, timeout=5, follow_redirects=True, headers=_BROWSER_HEADERS)
     except (TimeoutError, httpx.TimeoutException):
         return "fetch timeout"
+    except Exception as e:
+        return f"fetch failed: {e}"
+
+    if resp.status_code >= 400:
+        return f"fetch failed: HTTP {resp.status_code}"
+    html = resp.text
+    if not html:
+        return "fetch failed: empty content"
+
+    # --- trafilatura 抽正文 ---
+    try:
+        import trafilatura
+        text = trafilatura.extract(html)
+        if text:
+            return text
     except Exception:
         pass
 
     # --- BS4 回退路径 ---
     try:
         from bs4 import BeautifulSoup
-        resp = httpx.get(url, timeout=5, follow_redirects=True)
-        soup = BeautifulSoup(resp.text, "html.parser")
+        soup = BeautifulSoup(html, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header"]):
             tag.decompose()
         text = soup.get_text(separator="\n", strip=True)
         if text:
             return text
         return "fetch failed: empty content"
-    except (TimeoutError, httpx.TimeoutException):
-        return "fetch timeout"
     except Exception as e:
         return f"fetch failed: {e}"
 

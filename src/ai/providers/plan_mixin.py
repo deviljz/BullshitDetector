@@ -23,6 +23,49 @@ _DECAY = [1.0, 0.6, 0.4, 0.25]
 _WEIGHT = {"决定性": 60, "重要": 35, "一般": 18, "次要": 7, "无关": 2}
 
 
+import re as _re
+
+_NUM_RE = _re.compile(r"\d{3,}")  # 3 位以上数字序列
+
+
+def _claim_similarity(a: str, b: str) -> float:
+    """字符 bigram Jaccard 相似度（中文友好；短句下 bigram 比 trigram 灵敏）。返回 0~1。"""
+    a = "".join((a or "").split())
+    b = "".join((b or "").split())
+    if len(a) < 2 or len(b) < 2:
+        return 1.0 if a == b else 0.0
+    ga = {a[i:i+2] for i in range(len(a) - 1)}
+    gb = {b[i:i+2] for i in range(len(b) - 1)}
+    if not ga or not gb:
+        return 0.0
+    inter = len(ga & gb)
+    # 用 min 分母：短 claim 整体被长 claim 包住时也能命中
+    return inter / min(len(ga), len(gb))
+
+
+def _shared_numbers(a: str, b: str) -> int:
+    """两 claim 共享的不同 3 位以上数字数量（弱实体匹配信号）。"""
+    na = set(_NUM_RE.findall(a or ""))
+    nb = set(_NUM_RE.findall(b or ""))
+    return len(na & nb)
+
+
+def _is_duplicate_claim(new_claim: str, existing_claims: list[str]) -> bool:
+    """检查 new_claim 是否与已有任一 claim 实质重复。
+
+    双信号判定：
+    - 高 bigram 相似度（≥0.65）→ 措辞接近的同义改写，判重
+    - 共享 ≥2 个具体数字（如"3500""5000"）且 bigram ≥0.30 → 同事实不同措辞，判重
+    """
+    for ec in existing_claims:
+        sim = _claim_similarity(new_claim, ec)
+        if sim >= 0.65:
+            return True
+        if sim >= 0.30 and _shared_numbers(new_claim, ec) >= 2:
+            return True
+    return False
+
+
 def _claim_penalty_ratio(r: dict) -> float:
     """Map a claim result to a 0.0–1.0 penalty score.
 
@@ -64,8 +107,14 @@ class _PlanExecuteMixin:
 
     def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
                       url_snippets: dict | None = None, trace: list | None = None,
-                      extra_system_text: str = "") -> dict:
-        """Stage 2: Independent verification of one claim using submit_claim_result tool."""
+                      extra_system_text: str = "",
+                      tools_override: list | None = None,
+                      max_rounds: int = 5) -> dict:
+        """Stage 2: Independent verification of one claim using submit_claim_result tool.
+
+        phase 2 重核场景可传 tools_override（仅 fetch_url + submit）+ max_rounds=2，
+        避免重复 web_search 探索；phase 1 默认 web_search + fetch_url + submit + 5 轮。
+        """
         from ai.tools import SUBMIT_CLAIM_RESULT_TOOL, TOOLS, execute_tool
 
         if isinstance(claim, dict):
@@ -88,7 +137,7 @@ class _PlanExecuteMixin:
             {"role": "system", "content": system_content},
             {"role": "user", "content": [{"type": "text", "text": user_text}]},
         ]
-        verify_tools = [TOOLS[0], FETCH_URL_TOOL, SUBMIT_CLAIM_RESULT_TOOL]  # web_search + fetch_url + submit
+        verify_tools = tools_override if tools_override is not None else [TOOLS[0], FETCH_URL_TOOL, SUBMIT_CLAIM_RESULT_TOOL]
 
         result = None
         search_log: list = []
@@ -97,7 +146,7 @@ class _PlanExecuteMixin:
         fetch_count = 0
         _t0 = time.monotonic()
 
-        for _round in range(5):
+        for _round in range(max_rounds):
             try:
                 resp = self._create_with_retry(
                     model=self._model,
@@ -528,10 +577,92 @@ class _PlanExecuteMixin:
         if not lines:
             return ""
         return (
-            "【其他 claim 已搜证据池（可用 fetch_url 读取）】\n"
+            "【Phase 2 重核场景 — 其他 claim 已搜证据池】\n"
+            "phase 1 已对本文相关 claim 做过 web_search，下列 URL + snippet 是已积累的证据。\n"
+            "**本轮你只能调用 fetch_url 或 submit_claim_result，不能再 web_search**——\n"
+            "请直接基于 snippet 判断；如需更多细节，从下列 URL 选最相关的 1 个 fetch_url 读取，"
+            "然后立即 submit_claim_result。请在 2 轮内完成。\n\n"
             + "\n\n".join(lines)
-            + "\n\n如果你认为某条 URL 可能含有当前 claim 的关键证据，可调用 fetch_url 读取。"
         )
+
+    _CONSISTENCY_CHECK_TOOL = {
+        "type": "function",
+        "function": {
+            "name": "submit_inconsistencies",
+            "description": "提交需要重核的 ✗ 不存在 claim 索引列表（仅当其结论与其他 ✓ 存在 claim 在同一对象上矛盾时）",
+            "parameters": {
+                "type": "object",
+                "required": ["reverify"],
+                "properties": {
+                    "reverify": {
+                        "type": "array",
+                        "items": {"type": "integer"},
+                        "description": "需重核的 claim 索引列表；无矛盾返回 []",
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "简要说明判定理由（≤80 字）",
+                    },
+                },
+            },
+        },
+    }
+
+    def _run_consistency_check(self, claim_results: list[dict]) -> list[int]:
+        """轻量一致性检查：仅当 verdict 混合（既有 ✓ 又有 ✗）时触发。
+        返回需重核的 ✗ claim 索引列表；无矛盾或不触发返回 []。
+        """
+        has_exists = any(r.get("fact_layer") == "✓ 存在" for r in claim_results)
+        has_not_exists = any(r.get("fact_layer") == "✗ 不存在" for r in claim_results)
+        if not (has_exists and has_not_exists):
+            return []
+
+        # 构造简洁的 claim 摘要供模型比对
+        summary_lines = []
+        for i, r in enumerate(claim_results):
+            claim = (r.get("claim") or "")[:200]
+            note = (r.get("note") or "")[:300]
+            summary_lines.append(
+                f"[{i}] verdict={r.get('verdict','?')} | fact_layer={r.get('fact_layer','?')}\n"
+                f"    claim: {claim}\n    note: {note}"
+            )
+        summary = "\n\n".join(summary_lines)
+
+        system_prompt = (
+            "你是事实核查的一致性审查员。下面是同一篇文章拆出的若干 claim 的核查结论。\n"
+            "任务：检查是否存在 ✗ 不存在 claim 与其他 ✓ 存在 claim 在**同一对象**上互相矛盾的情况。\n"
+            "典型矛盾：claim A 判 ✓（'X 物体有 Y 特征'），claim B 判 ✗（声明同一 X 物体没有 Y 特征）。\n"
+            "或：claim B 的 note 暗示 source 谈论的对象其实跟 claim A 是同一个，但 B 错认为是别的对象。\n"
+            "仅返回需重核的 ✗ claim 索引；如所有 ✗ 都是真的不存在、与 ✓ 不冲突，返回空列表。"
+        )
+
+        try:
+            resp = self._create_with_retry(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": summary},
+                ],
+                max_tokens=400,
+                tools=[self._CONSISTENCY_CHECK_TOOL],
+                tool_choice="required",
+                temperature=0,
+                reasoning_effort="low",
+            )
+            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            if tc and tc.function.name == "submit_inconsistencies":
+                args = json.loads(tc.function.arguments)
+                indices = args.get("reverify", [])
+                # 防御：过滤非法索引、确保确实是 ✗ 不存在
+                return [
+                    int(i) for i in indices
+                    if isinstance(i, int)
+                    and 0 <= i < len(claim_results)
+                    and claim_results[i].get("fact_layer") == "✗ 不存在"
+                ]
+        except Exception:
+            return []
+        return []
 
     def _run_phase2_retry(
         self,
@@ -541,17 +672,23 @@ class _PlanExecuteMixin:
         query_cache: dict,
         trace: list | None = None,
     ) -> list[dict]:
-        """phase 2: 串行重核 fact_layer='? 无法核实' 的 claim，注入 evidence pool。"""
+        """phase 2: 串行重核 ? 无法核实 + 被一致性检查标记矛盾的 ✗ 不存在 claim，注入 evidence pool。"""
         unverified_indices = [
             i for i, r in enumerate(claim_results) if r.get("fact_layer") == "? 无法核实"
         ]
-        if not unverified_indices:
+        # 一致性检查：仅在 verdict 混合时触发，返回需重核的 ✗ claim 索引
+        inconsistent_indices = self._run_consistency_check(claim_results)
+        retry_indices = unverified_indices + inconsistent_indices
+        if not retry_indices:
             return claim_results
         pool_text = self._build_evidence_pool(url_snippets)
         if not pool_text:
             return claim_results
+        # phase 2 工具限制：禁用 web_search，强制依赖 evidence pool + fetch_url；轮数限 2
+        from ai.tools import SUBMIT_CLAIM_RESULT_TOOL
+        _phase2_tools = [FETCH_URL_TOOL, SUBMIT_CLAIM_RESULT_TOOL]
         results = list(claim_results)
-        for i in unverified_indices:
+        for i in retry_indices:
             original = results[i]
             claim = {
                 "text": original.get("claim", ""),
@@ -566,8 +703,12 @@ class _PlanExecuteMixin:
                     url_snippets=url_snippets,
                     trace=trace,
                     extra_system_text=pool_text,
+                    tools_override=_phase2_tools,
+                    max_rounds=2,
                 )
-                if new_result.get("fact_layer") != "? 无法核实":
+                # 仅当 fact_layer 实际改变时替换：
+                # ? → ✓/✗ 视为查清；✗ → ✓/? 视为撤回过度自信的错判；同向无变化则保留原结果。
+                if new_result.get("fact_layer") != original.get("fact_layer"):
                     results[i] = new_result
             except Exception:
                 pass  # 失败保留原结果
@@ -669,6 +810,39 @@ class _PlanExecuteMixin:
                     except Exception:
                         messages.append({"role": "tool", "tool_call_id": _narrative_tc.id,
                                          "content": '{"status": "parse_error"}'})
+
+                # 去重：re-planner 轮次中，与已核查 claim 实质重复的新 claim 直接复用已有结果，
+                # 不重跑 verify。回填的 tool message 是真实结果（不是 "skipped"），re-planner
+                # 才能基于完整证据决策 submit_verdict。
+                if verify_tcs and round_idx > 0 and all_verify_results:
+                    filtered_tcs = []
+                    for tc in verify_tcs:
+                        try:
+                            args = json.loads(tc.function.arguments)
+                            if tc.function.name == "identify_narrative":
+                                new_claim = args.get("article_conclusion", "")
+                            else:
+                                new_claim = args.get("claim", "")
+                            # 找最相似的已有 claim
+                            dup_idx = None
+                            existing_claims = [er.get("claim", "") for er in all_verify_results]
+                            for j, ec in enumerate(existing_claims):
+                                if _is_duplicate_claim(new_claim, [ec]):
+                                    dup_idx = j
+                                    break
+                            if dup_idx is not None:
+                                # 复用已有 verify 结果作为 tool 响应，re-planner 看见的是有效证据
+                                existing = all_verify_results[dup_idx]
+                                clean = {k: v for k, v in existing.items() if not k.startswith("_")}
+                                messages.append({
+                                    "role": "tool", "tool_call_id": tc.id,
+                                    "content": json.dumps(clean, ensure_ascii=False),
+                                })
+                                continue
+                        except Exception:
+                            pass
+                        filtered_tcs.append(tc)
+                    verify_tcs = filtered_tcs
 
                 # Run verify_claims in parallel
                 if verify_tcs:
