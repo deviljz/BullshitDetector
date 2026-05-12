@@ -13,6 +13,9 @@ build/
 .idea/
 .vscode/
 *.swp
+
+# analyze-logs skill 输出（临时报告）
+reports/
 *.swo
 *~
 
