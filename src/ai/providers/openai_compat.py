@@ -175,9 +175,11 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
             _stage = make_stage(stage_name, messages)
             trace.append(_stage)
 
-        # 默认禁 thinking：Gemini 2.5 Flash 开 thinking 会吃 max_tokens 预算导致输出截断。
-        # 调用方需要思考时通过 extra_create_kwargs={"reasoning_effort": "low"} 覆盖。
-        _temp_kwargs: dict = {"reasoning_effort": "none"}
+        # 默认 reasoning_effort="low"：tool_loop 多用于 analyze / explain / source / hype 决策类，
+        # 这些任务需要少量思考帮助选 query / 评估证据；"low" 预算下不会顶到 max_tokens 上限。
+        # 纯抽取类任务（summary）走 _run_single，那边默认 "none"。
+        # 调用方可通过 extra_create_kwargs={"reasoning_effort": "none"} 覆盖。
+        _temp_kwargs: dict = {"reasoning_effort": "low"}
         if temperature is not None:
             _temp_kwargs["temperature"] = temperature
         if extra_create_kwargs:
