@@ -965,7 +965,40 @@ class _PlanExecuteMixin:
                 if is_planner:
                     messages[0] = {"role": "system", "content": get_replanner_prompt(self._tone)}
 
-            # Fallback: no submit_verdict received
+            # Force-submit fallback：re-planner 没主动调 submit_verdict 时，强制 1 次
+            # tool_choice 锁死 submit_verdict 的调用，让模型综合写出 verdict 文本，
+            # 避免 UI 上 header.verdict 是空字符串。
+            if submit_args is None:
+                try:
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Re-planner 轮次已用尽，但你尚未调用 submit_verdict。"
+                            "请基于已完成的所有 claim 核查结果，立即调用 submit_verdict，"
+                            "综合写出 verdict_text、one_line_summary、toxic_review、bullshit_nature。"
+                            "即使部分 claim 是 ? 无法核实，也请综合现有信息给结论"
+                            "（如'多数事实属实但 X 未能核实'）。"
+                        ),
+                    })
+                    resp = self._create_with_retry(
+                        model=self._model,
+                        messages=messages,
+                        max_tokens=2000,
+                        tools=PLAN_EXECUTE_TOOLS,
+                        tool_choice={"type": "function", "function": {"name": "submit_verdict"}},
+                        temperature=0,
+                        reasoning_effort="low",
+                    )
+                    if resp.usage:
+                        total["input_tokens"] += resp.usage.prompt_tokens or 0
+                        total["output_tokens"] += resp.usage.completion_tokens or 0
+                    _tc = (resp.choices[0].message.tool_calls or [None])[0]
+                    if _tc and _tc.function.name == "submit_verdict":
+                        submit_args = json.loads(_tc.function.arguments)
+                except Exception:
+                    pass  # 失败回落到下方硬编码 fallback
+
+            # Fallback: 即便 force-submit 也失败，仍走硬编码兜底
             if submit_args is None:
                 submit_args = {
                     "investigation_report": {
