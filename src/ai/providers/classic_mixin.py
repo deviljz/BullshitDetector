@@ -356,8 +356,9 @@ class _ClassicMixin:
                 {"role": "user", "content": user_content},
             ]
             content, search_log, raw_tokens = self._tool_loop(
-                messages, 4096, _SOURCE_RETRY_PROMPT, tools=_active_tools,
+                messages, 8192, _SOURCE_RETRY_PROMPT, tools=_active_tools,
                 trace=_dbg["stages"], stage_name="source_main",
+                extra_create_kwargs={"reasoning_effort": "medium"},
             )
             result = parse_json(content)
             result["_subtype"] = subtype
@@ -395,8 +396,9 @@ class _ClassicMixin:
                 {"role": "user", "content": [{"type": "text", "text": text_content}]},
             ]
             content, search_log, raw_tokens = self._tool_loop(
-                messages, 4096, _SOURCE_RETRY_PROMPT,
+                messages, 8192, _SOURCE_RETRY_PROMPT,
                 trace=_dbg["stages"], stage_name="source_main",
+                extra_create_kwargs={"reasoning_effort": "medium"},
             )
             result = parse_json(content)
             result["_subtype"] = subtype
