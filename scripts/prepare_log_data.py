@@ -41,6 +41,8 @@ def main() -> int:
     p.add_argument("--history", default="history.json")
     p.add_argument("--exclude-dev", action="store_true",
                    help="完全过滤 dev replay case（默认保留并标记到独立 section）")
+    p.add_argument("--include-dev-as-real", action="store_true",
+                   help="跳过 dev replay 启发式检测，强制所有 case 视为真实（适用于同篇真实文章被多次鉴定的场景）")
     p.add_argument("--token-outlier", type=int, default=200_000,
                    help="input tokens 异常阈值（默认 200K）")
     p.add_argument("--elapsed-outlier", type=float, default=120.0,
@@ -68,6 +70,7 @@ def main() -> int:
         history_path=args.history,
         thresholds=thresholds,
         exclude_dev_replay=args.exclude_dev,
+        include_dev_as_real=args.include_dev_as_real,
     )
     now_dt = datetime.now(timezone.utc)
     markdown = render_report(cases, since_dt, now_dt, git_commit=_git_commit())

@@ -263,10 +263,12 @@ def collect_cases(since_dt: datetime, logs_dir: str = "logs",
                   history_path: str = "history.json",
                   paths_filter: Iterable[str] = ("plan_execute",),
                   thresholds: Thresholds | None = None,
-                  exclude_dev_replay: bool = False) -> list[dict]:
+                  exclude_dev_replay: bool = False,
+                  include_dev_as_real: bool = False) -> list[dict]:
     """高层 API：加载并聚合 case summary。默认只保留 plan_execute 路径。
 
-    exclude_dev_replay=True 时过滤掉 is_dev_replay 标记的 case；False 时保留并标记。
+    exclude_dev_replay=True 时过滤掉 is_dev_replay 标记的 case
+    include_dev_as_real=True 时跳过 dev replay 启发式检测（强制所有 case 视为真实）
     """
     logs = load_logs_since(since_dt, logs_dir)
     history = load_history(history_path)
@@ -277,7 +279,8 @@ def collect_cases(since_dt: datetime, logs_dir: str = "logs",
         cid = log.get("call_id", "")
         hist = history.get(cid)
         out.append(per_case_summary(log, hist, thresholds))
-    out = detect_dev_replays(out)
+    if not include_dev_as_real:
+        out = detect_dev_replays(out)
     if exclude_dev_replay:
         out = [c for c in out if not c["is_dev_replay"]]
     return out

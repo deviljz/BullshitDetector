@@ -27,9 +27,28 @@ def _pct(arr: list[int], p: float) -> int:
     return arr[idx]
 
 
-def render_global_stats(cases: list[dict], label: str = "全局聚合统计") -> str:
+def render_global_stats(cases: list[dict], label: str = "全局聚合统计",
+                        min_cases_for_stats: int = 5) -> str:
+    """case 数 < min_cases_for_stats 时改为列举式（不算 median/p95，避免统计假象）。"""
     if not cases:
         return f"## {label}\n\n（无可分析的 case）\n\n"
+
+    if len(cases) < min_cases_for_stats:
+        # 列举式：逐条简洁列
+        parts = [
+            f"## {label}",
+            "",
+            f"> case 数 {len(cases)} < {min_cases_for_stats}，统计指标无意义，改为列举式。",
+            "",
+        ]
+        for c in cases:
+            parts.append(
+                f"- `{c['case_id']}` | input={_fmt_token(c['tokens']['input'])} "
+                f"elapsed={c['elapsed_s']:.0f}s | claims={c['claim_count']} "
+                f"({c['claim_verdicts']}) | outliers={c['outliers'] or '无'}"
+            )
+        parts.append("")
+        return "\n".join(parts) + "\n"
 
     inputs = sorted(c["tokens"]["input"] for c in cases)
     elapsed = [c["elapsed_s"] for c in cases if c["elapsed_s"]]
@@ -133,14 +152,23 @@ def render_dev_replay_timeline(replays: list[dict]) -> str:
         items.sort(key=lambda x: x.get("timestamp", ""))
         parts.append(f"### {title}（{len(items)} 次 replay）")
         parts.append("")
-        parts.append("| 时间 | input | output | elapsed | claim数 | stages |")
-        parts.append("|------|-------|--------|---------|---------|--------|")
+        parts.append("| 时间 | input | Δinput | output | elapsed | claim数 | stages |")
+        parts.append("|------|-------|--------|--------|---------|---------|--------|")
+        prev_in = None
         for c in items:
+            cur_in = c["tokens"]["input"]
+            if prev_in is None:
+                delta_str = "—"
+            else:
+                d = cur_in - prev_in
+                sign = "+" if d >= 0 else "-"
+                delta_str = f"{sign}{_fmt_token(abs(d))}"
             parts.append(
-                f"| {c['timestamp'][:19]} | {_fmt_token(c['tokens']['input'])} | "
+                f"| {c['timestamp'][:19]} | {_fmt_token(cur_in)} | {delta_str} | "
                 f"{_fmt_token(c['tokens']['output'])} | {c['elapsed_s']:.0f}s | "
                 f"{c['claim_count']} | {c['stages_count']} |"
             )
+            prev_in = cur_in
         parts.append("")
     return "\n".join(parts) + "\n"
 
