@@ -811,11 +811,16 @@ class _PlanExecuteMixin:
                         messages.append({"role": "tool", "tool_call_id": _narrative_tc.id,
                                          "content": '{"status": "parse_error"}'})
 
-                # 去重：re-planner 轮次中，与已核查 claim 实质重复的新 claim 直接复用已有结果，
-                # 不重跑 verify。回填的 tool message 是真实结果（不是 "skipped"），re-planner
-                # 才能基于完整证据决策 submit_verdict。
-                if verify_tcs and round_idx > 0 and all_verify_results:
-                    filtered_tcs = []
+                # 去重：覆盖两类重复
+                # (a) 跨轮重复：与已 verify 的 claim 实质同义 → 复用已有结果作为 tool 响应
+                # (b) 同批次内重复：本批次内多个 verify_claim 互相重复 → 只 verify 第一个，
+                #     其余 tc 在 verify 完成后用 canonical 结果回填 tool 响应
+                # 必须给每个 tc 都填一条 tool 响应，否则 OpenAI 协议错误。
+                duplicate_to_canonical_tc_id: dict = {}  # 同批次重复 tc.id -> canonical tc.id
+                canonical_claims = [er.get("claim", "") for er in all_verify_results]
+                existing_pool_size = len(canonical_claims)
+                if verify_tcs:
+                    unique_tcs = []
                     for tc in verify_tcs:
                         try:
                             args = json.loads(tc.function.arguments)
@@ -823,26 +828,31 @@ class _PlanExecuteMixin:
                                 new_claim = args.get("article_conclusion", "")
                             else:
                                 new_claim = args.get("claim", "")
-                            # 找最相似的已有 claim
-                            dup_idx = None
-                            existing_claims = [er.get("claim", "") for er in all_verify_results]
-                            for j, ec in enumerate(existing_claims):
-                                if _is_duplicate_claim(new_claim, [ec]):
-                                    dup_idx = j
-                                    break
-                            if dup_idx is not None:
-                                # 复用已有 verify 结果作为 tool 响应，re-planner 看见的是有效证据
-                                existing = all_verify_results[dup_idx]
-                                clean = {k: v for k, v in existing.items() if not k.startswith("_")}
-                                messages.append({
-                                    "role": "tool", "tool_call_id": tc.id,
-                                    "content": json.dumps(clean, ensure_ascii=False),
-                                })
-                                continue
                         except Exception:
-                            pass
-                        filtered_tcs.append(tc)
-                    verify_tcs = filtered_tcs
+                            unique_tcs.append(tc)
+                            canonical_claims.append("")  # 占位
+                            continue
+                        dup_idx = None
+                        for j, ec in enumerate(canonical_claims):
+                            if _is_duplicate_claim(new_claim, [ec]):
+                                dup_idx = j
+                                break
+                        if dup_idx is None:
+                            unique_tcs.append(tc)
+                            canonical_claims.append(new_claim)
+                        elif dup_idx < existing_pool_size:
+                            # 跨轮重复：已有结果，直接回填
+                            existing = all_verify_results[dup_idx]
+                            clean = {k: v for k, v in existing.items() if not k.startswith("_")}
+                            messages.append({
+                                "role": "tool", "tool_call_id": tc.id,
+                                "content": json.dumps(clean, ensure_ascii=False),
+                            })
+                        else:
+                            # 同批次重复：标记，待 canonical verify 完成后回填
+                            canonical_tc = unique_tcs[dup_idx - existing_pool_size]
+                            duplicate_to_canonical_tc_id[tc.id] = canonical_tc.id
+                    verify_tcs = unique_tcs
 
                 # Run verify_claims in parallel
                 if verify_tcs:
@@ -879,6 +889,7 @@ class _PlanExecuteMixin:
                     with ThreadPoolExecutor(max_workers=min(len(verify_tcs), max_workers)) as ex:
                         verify_outcomes = list(ex.map(_run_verify, verify_tcs))
 
+                    canonical_results_by_tc_id: dict = {}
                     for tc, result, tokens, slog in verify_outcomes:
                         all_search_log.extend(slog)
                         all_verify_results.append(result)
@@ -887,6 +898,15 @@ class _PlanExecuteMixin:
                         clean = {k: v for k, v in result.items() if not k.startswith("_")}
                         messages.append({"role": "tool", "tool_call_id": tc.id,
                                          "content": json.dumps(clean, ensure_ascii=False)})
+                        canonical_results_by_tc_id[tc.id] = clean
+
+                    # 同批次重复 tc 用 canonical 结果回填 tool 响应
+                    for dup_tc_id, canon_tc_id in duplicate_to_canonical_tc_id.items():
+                        if canon_tc_id in canonical_results_by_tc_id:
+                            messages.append({
+                                "role": "tool", "tool_call_id": dup_tc_id,
+                                "content": json.dumps(canonical_results_by_tc_id[canon_tc_id], ensure_ascii=False),
+                            })
 
                 # Run other tools (analyze_title_logic, analyze_hype)
                 # For image-only inputs text is "", fall back to concatenated claims as context
