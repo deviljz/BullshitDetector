@@ -62,3 +62,42 @@ gate:
   require_evidence: true
   evidence_source: harness_report
   max_age_seconds: 300
+
+anti_patterns:
+  python:
+    - name: bare_except
+      pattern: '^\s*except\s*:\s*$'
+      msg: "禁止裸 except"
+      severity: error
+    - name: mutable_default_arg
+      pattern: 'def \w+\([^)]*=\s*(\[\]|\{\})\s*[,)]'
+      msg: "可变默认参数跨调用共享状态"
+      severity: error
+  all:
+    - name: api_key_leak
+      pattern: '(AIza[0-9A-Za-z_-]{35}|sk-[a-zA-Z0-9]{20,}|ghp_[a-zA-Z0-9]{36})'
+      msg: "疑似 API Key 硬编码，必须移到 config.json"
+      severity: error
+
+core_modules_coverage:
+  - path: src/ai/analyzer.py
+    must_have_test: tests/test_analyzer.py
+    reason: "鉴定入口，崩了所有路径都不可用"
+  - path: src/ai/providers/plan_mixin.py
+    must_have_test: tests/test_plan_mixin.py
+    reason: "plan_execute 多轮核查 + phase2 retry 主逻辑"
+  - path: src/ai/providers/classic_mixin.py
+    must_have_test: tests/test_classic_mixin.py
+    reason: "免费 Gemini 单次鉴定路径，受 RPM 限制不能 schema 化"
+  - path: src/ai/providers/openai_compat.py
+    must_have_test: tests/test_openai_compat.py
+    reason: "tool_loop / single 主调用栈，reasoning_effort 配置中心"
+  - path: src/ai/tools.py
+    must_have_test: tests/test_tools.py
+    reason: "search / fetch_url / submit_verdict 工具实现"
+  - path: src/ai/json_utils.py
+    must_have_test: tests/test_json_utils.py
+    reason: "JSON 容错解析，AI 输出脏数据兜底"
+  - path: src/hotkey_win32.py
+    must_have_test: tests/test_hotkey_win32.py
+    reason: "Win32 全局热键，崩了用户无法触发鉴定"

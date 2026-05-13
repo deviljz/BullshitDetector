@@ -42,7 +42,7 @@ def extract_json(text):
         s = "\n".join(lines[1:-1])
     try:
         return json.loads(s)
-    except:
+    except (json.JSONDecodeError, ValueError):
         start = s.find("{")
         end = s.rfind("}")
         if start >= 0 and end > start:

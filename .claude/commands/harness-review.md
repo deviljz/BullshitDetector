@@ -42,14 +42,19 @@ argument-hint: <spec-path>
 1. **找到该步涉及的关键 symbol**（函数名、widget 名、button 名、路由）
 2. **用 Grep 工具在整个工程里搜该 symbol 的调用方**（diff 只显示改动，门槛/触发条件可能在未改动的老代码里 —— 必须 Read 相关文件完整上下文，不能只看 diff 片段）
 3. **逐层 trace**：这个 symbol 被谁调用？调用处有什么 if/guard？guard 是否与 spec 的时机要求（"立即"、"上传后"、"任何时候"）冲突？
-4. 若 spec 说"上传后立即看到 X"但代码在 `if (已答完 Y)` 里才渲染入口 → 这就是偏差，报 `文件:行号 - 门槛 A，spec 要求 B`
+4. **数据源 trace（关键）**：若 flow 步骤是"看到列表/历史/X 的集合"这类**数据展示**类，必须继续 trace 到数据源（DB query / API 调用 / 缓存 / 文件）：
+   - 找到查询的过滤条件（WHERE 子句、参数）
+   - **用项目对应的 DB 工具（sqlite3 / psql / mysql / mongosh / redis-cli 等）抽查至少 5 行真实数据**，确认能匹配过滤条件
+   - 若新增了过滤字段（如 WHERE kind='X'）但老数据该字段为 NULL/缺失 → 这就是偏差，报"数据源 file:line 按 X 过滤但现有数据全部不匹配"
+5. 若 spec 说"上传后立即看到 X"但代码在 `if (已答完 Y)` 里才渲染入口 → 这就是偏差，报 `文件:行号 - 门槛 A，spec 要求 B`
 
 **硬禁**：
 - 禁止只看 diff 片段判通过。diff 是"改了什么"，不是"全部实现"。必须读全文件找 trigger。
 - 禁止看到函数定义就默认"在合适时机调用"。必须找到调用点并验证其 guard。
 - 若 diff 新增了 widget W 但没改 W 的渲染条件，必须去源文件看 W 的渲染条件。
+- 数据展示类 flow 禁止只看代码逻辑而不抽查真实数据。
 
-你可以用 Grep / Read / Glob 工具在 F:/Project/MiaoStudy 工程里读任意文件。
+你可以用 Grep / Read / Glob 工具读工程内任意文件，以及用 Bash 调用项目对应的 DB 命令行工具抽查数据。
 
 最终只回 JSON：`{"consistent": true|false, "issues": ["flow步骤N - 实际入口是 file:line，guard 是 XXX，spec 要求 YYY，不一致"]}`
 ```
