@@ -66,18 +66,67 @@ def _is_duplicate_claim(new_claim: str, existing_claims: list[str]) -> bool:
     return False
 
 
-def _claim_penalty_ratio(r: dict) -> float:
-    """Map a claim result to a 0.0–1.0 penalty score.
+def _claim_polarity(r: dict) -> str:
+    """Return claim polarity. Default 'supports_article' for backward compatibility.
 
-    Supports both new multi-dim format (fact_layer) and legacy (verdict).
+    'supports_article': claim restates what the article asserts (✓=article OK, ✗=article wrong)
+    'refutes_article': claim challenges the article's premise (✓=rebuttal stands → article wrong)
     """
+    p = r.get("polarity")
+    return p if p == "refutes_article" else "supports_article"
+
+
+def _claim_is_fake(r: dict) -> bool:
+    """True iff this claim signals the article is wrong (polarity-aware)."""
+    polarity = _claim_polarity(r)
+    if "fact_layer" in r:
+        fact = r.get("fact_layer")
+        if polarity == "refutes_article":
+            return fact == "✓ 存在"
+        return fact == "✗ 不存在"
+    verdict = r.get("verdict") or ""
+    if polarity == "refutes_article":
+        return "✓" in verdict
+    return "✗" in verdict
+
+
+def _claim_is_verified(r: dict) -> bool:
+    """True iff this claim signals the article is right (polarity-aware)."""
+    polarity = _claim_polarity(r)
+    if "fact_layer" in r:
+        fact = r.get("fact_layer")
+        if polarity == "refutes_article":
+            return fact == "✗ 不存在"
+        return fact == "✓ 存在"
+    verdict = r.get("verdict") or ""
+    if polarity == "refutes_article":
+        return "✗" in verdict
+    return "✓" in verdict
+
+
+def _claim_is_uncertain(r: dict) -> bool:
+    """True iff verdict is ? (uncertain). Polarity-invariant."""
+    if "fact_layer" in r:
+        return r.get("fact_layer") == "? 无法核实"
+    return "?" in (r.get("verdict") or "")
+
+
+def _claim_penalty_ratio(r: dict) -> float:
+    """Map a claim result to a 0.0–1.0 penalty score (polarity-aware).
+
+    For supports_article (default): ✓→0, ✗→1, ?→0.25
+    For refutes_article:           ✓→1, ✗→0, ?→0.25 (verdict swap)
+    """
+    polarity = _claim_polarity(r)
     if "fact_layer" not in r:
         # Legacy format: single verdict string
         verdict = r.get("verdict", "")
         if "✗" in verdict:
-            return 1.0
+            return 0.0 if polarity == "refutes_article" else 1.0
         if "?" in verdict:
             return 0.25
+        if "✓" in verdict:
+            return 1.0 if polarity == "refutes_article" else 0.0
         return 0.0
     # Timeout/failure is more suspicious than ordinary "无法核实"
     if "核查超时或失败" in (r.get("note") or ""):
@@ -85,7 +134,10 @@ def _claim_penalty_ratio(r: dict) -> float:
     fact = r.get("fact_layer", "? 无法核实")
     if fact == "○ 非事实声明":
         return 0.0
-    base = {"✗ 不存在": 1.0, "? 无法核实": 0.25, "✓ 存在": 0.0}.get(fact, 0.25)
+    if polarity == "refutes_article":
+        base = {"✓ 存在": 1.0, "? 无法核实": 0.25, "✗ 不存在": 0.0}.get(fact, 0.25)
+    else:
+        base = {"✗ 不存在": 1.0, "? 无法核实": 0.25, "✓ 存在": 0.0}.get(fact, 0.25)
     extra = 0.0
     if r.get("number_layer") == "✗ 错误":
         extra += 0.55
@@ -121,10 +173,12 @@ class _PlanExecuteMixin:
             claim_text = claim.get("text", "")
             claim_type = claim.get("type", "fact")
             claim_importance = claim.get("importance", "一般")
+            claim_polarity = claim.get("polarity", "supports_article")
         else:
             claim_text = claim
             claim_type = "fact"
             claim_importance = "一般"
+            claim_polarity = "supports_article"
 
         user_text = f"文章背景（摘要）：{article_text[:400]}\n\n需核查的声明：{claim_text}"
         if claim_type == "narrative":
@@ -323,6 +377,7 @@ class _PlanExecuteMixin:
         result["claim"] = claim_text
         result["claim_type"] = claim_type
         result["claim_importance"] = claim_importance
+        result["polarity"] = claim_polarity
         result["_search_log"] = search_log
         result["_tokens"] = tokens
         return result
@@ -392,29 +447,82 @@ class _PlanExecuteMixin:
         return len(first) <= 50
 
     @staticmethod
+    def _resolve_verdict_text(verdict_text, nature: str, bi: int, claim_results: list[dict]) -> str:
+        """Override LLM verdict_text when it obviously contradicts bi/claim consensus.
+
+        Only catches the most flagrant cases (avoid false positives):
+        - bi ≤ 30 (文章属实) but verdict_text contains "并无事实依据"-类否认短语 → 覆盖
+        - bi ≥ 56 (文章虚假) but verdict_text contains "完全属实"-类肯定短语 → 覆盖
+        - empty verdict_text → fill from template
+        Middle bi range is left to the LLM (allow nuance).
+        """
+        DENY_PHRASES = ("并无事实依据", "并无事实根据", "毫无事实依据", "并无根据",
+                        "无任何事实", "没有事实依据", "并不存在", "并非如此")
+        AFFIRM_PHRASES = ("完全属实", "完全准确", "完全正确", "完全成立",
+                          "完全无误", "事实清楚", "毫无问题")
+
+        def _build_template():
+            fake_n = sum(1 for c in claim_results if _claim_is_fake(c))
+            verified_n = sum(1 for c in claim_results if _claim_is_verified(c))
+            uncertain_n = sum(1 for c in claim_results if _claim_is_uncertain(c))
+            parts = []
+            if fake_n:
+                parts.append(f"{fake_n} 项不成立")
+            if verified_n:
+                parts.append(f"{verified_n} 项属实")
+            if uncertain_n:
+                parts.append(f"{uncertain_n} 项暂无法核实")
+            stance = {
+                "事实错误": "文章核心事实存在重大问题。",
+                "局部失实": "文章部分内容失实。",
+                "属实": "文章核心事实成立。",
+                "基本属实": "文章核心事实大体成立，细节略有出入。",
+                "夸大渲染": "文章事实基本成立但表述存在夸大。",
+                "真实但离谱": "文章内容真实但表述荒诞。",
+                "标题党": "标题与正文事实存在落差。",
+                "断章取义": "文章存在断章取义。",
+                "逻辑混乱": "文章推理链存在断裂。",
+            }.get(nature, "建议进一步核实。")
+            prefix = "经核查，" + ("、".join(parts) + "。" if parts else "")
+            return prefix + stance
+
+        if not verdict_text:
+            return _build_template()
+        if bi <= 30 and any(p in verdict_text for p in DENY_PHRASES):
+            return _build_template()
+        if bi >= 56 and any(p in verdict_text for p in AFFIRM_PHRASES):
+            return _build_template()
+        return verdict_text
+
+    @staticmethod
+    def _resolve_nature(ai_nature, bi: int, claim_results: list[dict], title_logic: dict, hype: dict) -> str:
+        """Cross-validate LLM-given bullshit_nature against deterministic signals.
+
+        LLM may return a nature that contradicts the actual bi / claim_verification data
+        (e.g. nature="属实" while all claims are ✗ and bi=100). When that happens we
+        override with the deterministic value computed from the same data the bi uses,
+        guaranteeing header internal consistency.
+        """
+        deterministic = _PlanExecuteMixin._nature_from_inputs(bi, claim_results, title_logic, hype)
+        if not ai_nature:
+            return deterministic
+
+        positive = {"属实", "基本属实", "真实但离谱"}
+        if ai_nature in positive:
+            if any(_claim_is_fake(c) for c in claim_results) or bi >= 56:
+                return deterministic
+        return ai_nature
+
+    @staticmethod
     def _nature_from_inputs(bi: int, claim_results: list[dict], title_logic: dict, hype: dict) -> str:
         """Determine bullshit_nature from already-computed plan-execute inputs.
 
         Supports both multi-dim (fact_layer) and legacy (verdict) claim formats.
+        Polarity-aware via _claim_is_fake / _claim_is_verified / _claim_is_uncertain.
         """
-        def _is_fake(c: dict) -> bool:
-            if "fact_layer" in c:
-                return c.get("fact_layer") == "✗ 不存在"
-            return "✗" in c.get("verdict", "")
-
-        def _is_verified(c: dict) -> bool:
-            if "fact_layer" in c:
-                return c.get("fact_layer") == "✓ 存在"
-            return "✓" in c.get("verdict", "")
-
-        def _is_uncertain(c: dict) -> bool:
-            if "fact_layer" in c:
-                return c.get("fact_layer") == "? 无法核实"
-            return "?" in c.get("verdict", "")
-
-        fake_count = sum(1 for c in claim_results if _is_fake(c))
-        verified_count = sum(1 for c in claim_results if _is_verified(c))
-        has_uncertain = any(_is_uncertain(c) for c in claim_results)
+        fake_count = sum(1 for c in claim_results if _claim_is_fake(c))
+        verified_count = sum(1 for c in claim_results if _claim_is_verified(c))
+        has_uncertain = any(_claim_is_uncertain(c) for c in claim_results)
 
         if fake_count > 0:
             if verified_count >= 2 * fake_count:
@@ -428,10 +536,9 @@ class _PlanExecuteMixin:
         if "有夸大" in (hype.get("verdict") or ""):
             return "夸大渲染"
         if has_uncertain:
-            # Only "局部失实" if uncertain claims dominate or a decisive claim is unverified
-            uncertain_count = sum(1 for c in claim_results if _is_uncertain(c))
+            uncertain_count = sum(1 for c in claim_results if _claim_is_uncertain(c))
             has_decisive_uncertain = any(
-                _is_uncertain(c) and c.get("claim_importance") == "决定性"
+                _claim_is_uncertain(c) and c.get("claim_importance") == "决定性"
                 for c in claim_results
             )
             if has_decisive_uncertain or uncertain_count >= max(1, verified_count):
@@ -444,18 +551,8 @@ class _PlanExecuteMixin:
     def _calculate_radar(claim_results: list[dict], title_logic: dict, hype: dict) -> dict:
         n = max(len(claim_results), 1)
 
-        def _is_fake(c: dict) -> bool:
-            if "fact_layer" in c:
-                return c.get("fact_layer") == "✗ 不存在"
-            return "✗" in c.get("verdict", "")
-
-        def _is_uncertain(c: dict) -> bool:
-            if "fact_layer" in c:
-                return c.get("fact_layer") == "? 无法核实"
-            return "?" in c.get("verdict", "")
-
-        fake = sum(1 for c in claim_results if _is_fake(c))
-        unverified = sum(1 for c in claim_results if _is_uncertain(c))
+        fake = sum(1 for c in claim_results if _claim_is_fake(c))
+        unverified = sum(1 for c in claim_results if _claim_is_uncertain(c))
         verified = n - fake - unverified
 
         # logic_consistency: 5=all verified, penalize fake/unverified/title issues
@@ -902,6 +999,7 @@ class _PlanExecuteMixin:
                                 "text": claim_text,
                                 "type": args.get("claim_type", "fact"),
                                 "importance": args.get("claim_importance", "一般"),
+                                "polarity": args.get("polarity", "supports_article"),
                             }
                         result = self._verify_claim(claim_obj, _text, _cache, _url_snippets, _stages)
                         tokens = result.pop("_tokens", {})
@@ -1050,7 +1148,10 @@ class _PlanExecuteMixin:
             radar = self._calculate_radar(cv, title_logic, hype_check)
 
             ai_nature = submit_args.get("bullshit_nature")
-            final_nature = ai_nature if ai_nature else self._nature_from_inputs(bi, cv, title_logic, hype_check)
+            final_nature = self._resolve_nature(ai_nature, bi, cv, title_logic, hype_check)
+            final_verdict = self._resolve_verdict_text(
+                submit_args.get("verdict_text", ""), final_nature, bi, cv
+            )
 
             result = normalize_result({
                 "_mode": "analyze",
@@ -1058,7 +1159,7 @@ class _PlanExecuteMixin:
                     "bullshit_index": bi,
                     "bullshit_nature": final_nature,
                     "risk_level": risk_level,
-                    "verdict": submit_args.get("verdict_text", ""),
+                    "verdict": final_verdict,
                     "truth_label": f"{100 - bi}% 属实" if isinstance(bi, int) else "分析中",
                 },
                 "claim_verification": [

@@ -126,6 +126,18 @@ def get_planner_prompt(tone: str = "toxic") -> str:
 - **次要**：边角细节，即使有误影响极小
 - **无关**：即使为假也不影响结论
 
+## polarity 立场（默认 supports_article，可省略；遇到反例必填）
+- **supports_article**（默认）：claim 复述文章在主张的事实
+  - 例：文章说"X 翻译错了" → claim 写"X 翻译错了" → ✓ 表示文章主张属实
+- **refutes_article**：claim 是反驳文章前提的事实
+  - 例：文章假定"图来自 A 作品并讨论其翻译问题" → 实际怀疑图根本来自 B 作品 →
+    claim 写"图实际来自 B 作品（非 A 作品）" + polarity="refutes_article"
+  - → ✓ 表示反驳成立、文章前提被推翻
+- ⚠️ 判断方法：问自己"这条 claim 验证成立，对文章是好消息还是坏消息？"
+  - 好消息（文章对）→ supports_article；坏消息（文章错）→ refutes_article
+- ⚠️ 极常见的 refutes 场景：网络梗作品归属错误、伪造引文、张冠李戴的图片/视频、错误的事件归属
+- 不确定就不填（默认 supports_article 处理）
+
 ## 重要
 - 必须同时调用 `identify_narrative` 和至少一次 `verify_claim`
 - 今天日期：{_current_date}
@@ -158,6 +170,8 @@ def get_replanner_prompt(tone: str = "toxic") -> str:
 - 已核查所有重要声明，且可选分析已按需完成
 - 将 analyze_title_logic / analyze_hype 的返回结果填入 investigation_report
 - 撰写 one_line_summary、toxic_review（{_tone_label}风格）、verdict_text
+- **立场一致硬约束**：verdict_text / one_line_summary / toxic_review / investigation_report.caveats 必须复述 claim_verification 的核查口径，禁止脱离已核查 claim 重新叙事。若 claim 判定文章前提不成立（例如"图片不出自所述作品"），verdict_text 等就必须围绕"前提不成立"叙述，不得继续假设前提成立后讨论细节
+- **bullshit_nature 硬约束**：claim_verification 中存在任何 ✗ 时，禁止选 属实 / 基本属实 / 真实但离谱；Python 层会做最终校验，矛盾时强制覆盖你的选择
 
 ## bi 计算说明（仅供参考，不用你计算）
 Python 层会根据 claim_verification 结果自动计算扯淡指数，你只需如实填写核查结论。

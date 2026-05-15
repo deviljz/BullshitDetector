@@ -198,6 +198,18 @@ PLAN_EXECUTE_TOOLS = [
                         "enum": ["决定性", "重要", "一般", "次要", "无关"],
                         "description": "该声明对文章核心结论的影响程度：决定性=此声明为假则核心结论完全崩塌；重要=明显削弱但不完全推翻；一般=影响可信度但核心尚成立；次要=边角细节影响很小；无关=即使为假也不影响结论",
                     },
+                    "polarity": {
+                        "type": "string",
+                        "enum": ["supports_article", "refutes_article"],
+                        "description": (
+                            "声明立场（默认 supports_article，可省略）。"
+                            "supports_article：claim 复述文章在主张的事实（如文章说'X 翻译错了'，claim 就写'X 翻译错了'）"
+                            "→ ✓ 表示文章主张属实，✗ 表示文章主张伪造。"
+                            "refutes_article：claim 是反驳文章前提的事实（如文章假定图来自《哆啦A梦》，claim 写'图实际来自《刃牙》'）"
+                            "→ ✓ 表示反驳成立、文章前提被推翻，✗ 表示反驳不成立、文章前提仍然成立。"
+                            "⚠️ 判断标准：claim 文字描述的是文章的核心立场，还是与文章立场相对立的事实？前者 supports，后者 refutes。"
+                        ),
+                    },
                     "context": {"type": "string", "description": "声明所在文章的标题和核心背景（100字以内）"},
                     "quoted_from": {"type": "string", "description": "若声明是'X引用/援引了Y的话'，填Y的名字（如'维克多·雨果'）；X是自己原创发言则留空"},
                 },
@@ -262,7 +274,9 @@ PLAN_EXECUTE_TOOLS = [
                             "⑤ 全部 ✓ 且 hype_check 无夸大但内容荒诞 → 真实但离谱（注意：只要有任何 ✗，禁止选此项）；"
                             "⑥ title_logic_check 有问题 → 标题党；"
                             "⑦ 语境剥离/断章截图 → 断章取义；"
-                            "⑧ 推理链断裂 → 逻辑混乱"
+                            "⑧ 推理链断裂 → 逻辑混乱。"
+                            "⚠️ 硬约束：claim_verification 存在任何 ✗ 时，禁止选 属实/基本属实/真实但离谱；"
+                            "Python 层会做最终校验，矛盾时强制覆盖你的选择。"
                         ),
                     },
                     "flaw_list": {
