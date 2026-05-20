@@ -1,6 +1,8 @@
 {
   "_comment": "将此文件复制为 config.json，填入你的 API Key，修改 active_provider 切换模型",
   "active_provider": "openai_compatible",
+  "_verify_claim_model_comment": "鉴定 plan_execute 路径下 verify_claim 阶段单独用的模型（混合模式：planner 用主 model，verify 并行用更轻量 model 提速）。留空=与主 model 一致；填非空 model id 启用混合",
+  "verify_claim_model": "",
   "_search_comment": "搜索引擎：anysearch=AnySearch（推荐，免费1000次/日，留空 key 走匿名模式 https://anysearch.com/console/api-keys）| ddg=DuckDuckGo（需代理）| tavily=Tavily（国内可用，免费1000次/月 https://tavily.com）",
   "search_provider": "anysearch",
   "tavily_api_key": "tvly-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",

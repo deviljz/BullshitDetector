@@ -25,7 +25,14 @@ CASES = [
     {"id": "baa9c7d8ed6159c4", "label": "text-only 恶之花", "extra": "恶之花是什么梗"},
 ]
 
-MODELS = ["gemini-3-flash-preview", "gemini-3.1-flash-lite"]
+# 每个 setup = (label, main_model, verify_claim_override)
+# verify_claim_override 非空时：planner 用 main_model，verify 并行用 override（混合 D 模式）
+SETUPS = [
+    ("preview-only", "gemini-3-flash-preview", ""),
+    ("lite-only", "gemini-3.1-flash-lite", ""),
+    ("mixed-D (preview+lite-verify)", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
+]
+MODELS = [s[0] for s in SETUPS]
 
 
 def load_case(cid: str):
@@ -41,9 +48,10 @@ def load_case(cid: str):
     return meta, imgs_b64
 
 
-def set_model(model: str):
+def set_model(model: str, verify_override: str = ""):
     cfg = json.load(open("config.json", "r", encoding="utf-8"))
     cfg["providers"]["openai_compatible"]["model"] = model
+    cfg["verify_claim_model"] = verify_override
     with open("config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
 
@@ -99,9 +107,11 @@ def main():
 
     results = {}
     try:
-        for model in MODELS:
-            print(f"\n========== MODEL: {model} ==========")
-            set_model(model)
+        for label, main_model, verify_override in SETUPS:
+            tag = f"{label} (main={main_model}, verify={verify_override or main_model})"
+            print(f"\n========== SETUP: {tag} ==========")
+            set_model(main_model, verify_override)
+            model = label  # use label as key
             for case in CASES:
                 key = f"{model}|{case['id']}"
                 print(f"\n--- {case['label']} ({case['id']}) ---")
@@ -116,8 +126,8 @@ def main():
                     print(f"  FAIL {res['elapsed']:.1f}s: {res['error'][:200]}")
     finally:
         # 还原 config
-        set_model(orig_model)
-        print(f"\n已还原 model 为: {orig_model}")
+        set_model(orig_model, "")
+        print(f"\n已还原 model 为: {orig_model}, verify_claim_model=''")
 
     # 写报告
     lines = ["# 双模型 replay 对比: gemini-3-flash-preview vs gemini-3.1-flash-lite\n"]

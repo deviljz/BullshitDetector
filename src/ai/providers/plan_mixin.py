@@ -157,6 +157,21 @@ def _claim_penalty_ratio(r: dict) -> float:
 class _PlanExecuteMixin:
     """Plan-and-Execute pipeline methods. No __init__."""
 
+    def _verify_claim_model(self) -> str:
+        """返回 verify_claim 阶段使用的 model.
+
+        默认与 self._model 相同。若 config.json 顶层配 verify_claim_model 非空，
+        verify 阶段用该 model（典型用法：planner 用 preview，verify 用 lite）。
+        """
+        try:
+            from config.manager import load as _load_cfg
+            override = (_load_cfg() or {}).get("verify_claim_model", "")
+            if override:
+                return override
+        except Exception:
+            pass
+        return self._model
+
     def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
                       url_snippets: dict | None = None, trace: list | None = None,
                       extra_system_text: str = "",
@@ -201,10 +216,11 @@ class _PlanExecuteMixin:
         seen_queries: set[str] = set()  # 跨轮 query 跟踪：本轮 query 已被前轮搜过则停损
         _t0 = time.monotonic()
 
+        _verify_model = self._verify_claim_model()
         for _round in range(max_rounds):
             try:
                 resp = self._create_with_retry(
-                    model=self._model,
+                    model=_verify_model,
                     messages=messages,
                     max_tokens=2000,
                     tools=verify_tools,
