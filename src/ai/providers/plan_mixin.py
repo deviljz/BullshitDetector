@@ -588,7 +588,7 @@ class _PlanExecuteMixin:
                     {"role": "user", "content": [{"type": "text", "text":
                         f"今天日期：{_current_date}\n\n文章内容（摘要）：{article_text[:1000]}\n\n声明核查结果：{json.dumps(clean, ensure_ascii=False)}"}]},
                 ],
-                max_tokens=300,
+                max_tokens=4000,
                 tools=[SUBMIT_TITLE_LOGIC_TOOL],
                 tool_choice={"type": "function", "function": {"name": "submit_title_logic"}},
             )
@@ -629,7 +629,7 @@ class _PlanExecuteMixin:
                     {"role": "system", "content": get_hype_check_prompt()},
                     {"role": "user", "content": [{"type": "text", "text": f"今天日期：{_current_date}\n\n文章内容：{article_text[:1500]}"}]},
                 ],
-                max_tokens=300,
+                max_tokens=4000,
                 tools=[SUBMIT_HYPE_TOOL],
                 tool_choice={"type": "function", "function": {"name": "submit_hype_check"}},
             )
@@ -762,7 +762,7 @@ class _PlanExecuteMixin:
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": summary},
                 ],
-                max_tokens=400,
+                max_tokens=4000,
                 tools=[self._CONSISTENCY_CHECK_TOOL],
                 tool_choice="required",
                 temperature=0,

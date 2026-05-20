@@ -89,3 +89,46 @@ def test_legacy_verdict_format():
     bad = '所谓声明并无事实依据。'
     result = resolve(bad, nature='属实', bi=5, claim_results=claims)
     assert result != bad
+
+
+# ── Regression: compare_models_replay.py summarize() 读错 key ───────────────
+# pipeline 把鉴定结论存在 header["verdict"]，不是 "verdict_text"。
+# 之前 summarize() 读 h.get("verdict_text") → 永远空，引发误判。
+
+def test_compare_script_summarize_reads_correct_key():
+    """compare_models_replay.summarize() 必须读 header['verdict'] 而非 header['verdict_text']。
+    本测试 mock 一个 result，验证 summarize 返回的 verdict_text 非空。
+    """
+    # Simulate what the pipeline actually produces
+    fake_result = {
+        "ok": True,
+        "result": {
+            "header": {
+                "bullshit_index": 80,
+                "bullshit_nature": "事实错误",
+                "risk_level": "高",
+                "verdict": "经核查，2 项不成立。文章核心事实存在重大问题。",  # correct key
+                # NO "verdict_text" key in header
+            },
+            "claim_verification": [
+                {"verdict": "✗ 不存在", "claim": "声明1"},
+                {"verdict": "✗ 不存在", "claim": "声明2"},
+            ],
+            "one_line_summary": "文章存在重大事实错误",
+        },
+        "elapsed": 5.0,
+    }
+
+    # Import the summarize function from the script
+    import importlib.util
+    import pathlib
+    script_path = pathlib.Path(__file__).parent.parent / "scripts" / "compare_models_replay.py"
+    spec = importlib.util.spec_from_file_location("compare_models_replay", script_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    summary = mod.summarize(fake_result)
+    assert summary.get("verdict_text"), \
+        (f"summarize() 返回的 verdict_text 为空。"
+         f"可能是脚本读了 header['verdict_text']（不存在）而非 header['verdict']。"
+         f"实际 summary={summary}")
