@@ -46,6 +46,9 @@ tests/process_report.html
 tests/python_ref/
 tests/toutiao_test/
 
+# scripts replay/compare artifacts (本地报告，不入库)
+scripts/_*
+
 # runtime data
 history.json
 historyCache/

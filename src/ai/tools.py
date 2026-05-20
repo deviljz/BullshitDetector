@@ -1,6 +1,9 @@
-"""Function Calling 工具定义 + 搜索执行（支持 DuckDuckGo / Tavily / Google Vision）"""
+"""Function Calling 工具定义 + 搜索执行（支持 DuckDuckGo / Tavily / AnySearch / Google Vision）"""
 
+import re
 from typing import List
+
+import requests
 
 # 求出处模式临时存放当前图片 base64（单用户桌面应用，无并发问题）
 _current_image_b64: str | None = None
@@ -52,15 +55,88 @@ def _search_tavily(query: str, api_key: str, max_results: int = 5) -> List[dict]
 _TAVILY_QUOTA_PATTERNS = ("usage limit", "exceeds your plan", "upgrade your plan", "quota exceeded")
 _tavily_quota_exhausted: bool = False  # 运行期 flag：Tavily 配额耗尽后直接走 DDG
 
+# AnySearch MCP endpoint（Streamable HTTP transport, JSON-RPC 2.0）
+_ANYSEARCH_ENDPOINT = "https://api.anysearch.com/mcp"
+_ANYSEARCH_HEADING_RE = re.compile(r"^###\s+\d+\.\s+(.+?)\s*$", re.MULTILINE)
+_ANYSEARCH_URL_RE = re.compile(r"^-\s+\*\*链接\*\*:\s+(\S+)", re.MULTILINE)
+
+
+def _parse_anysearch_markdown(text: str) -> List[dict]:
+    """解析 AnySearch search 工具返回的 markdown 文本，抽出 {title, snippet, url}。"""
+    if not text:
+        return []
+    headings = list(_ANYSEARCH_HEADING_RE.finditer(text))
+    if not headings:
+        return []
+    results: List[dict] = []
+    for i, m in enumerate(headings):
+        title = m.group(1).strip()
+        block_start = m.end()
+        block_end = headings[i + 1].start() if i + 1 < len(headings) else len(text)
+        block = text[block_start:block_end]
+        url_match = _ANYSEARCH_URL_RE.search(block)
+        url = url_match.group(1).strip() if url_match else ""
+        # snippet：取所有 `- ` 开头但非"**链接**"的行，截断到 sitelinks 之前
+        snippet_lines: List[str] = []
+        for line in block.splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("sitelinks"):
+                break
+            if stripped.startswith("- ") and "**链接**" not in stripped:
+                snippet_lines.append(stripped[2:].strip())
+        results.append({
+            "title": title,
+            "url": url,
+            "snippet": " ".join(snippet_lines),
+        })
+    return results
+
+
+def _search_anysearch(query: str, api_key: str = "", max_results: int = 5) -> List[dict]:
+    """调用 AnySearch MCP search 工具。api_key 为空时走匿名模式（速率较低）。"""
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json, text/event-stream",
+    }
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+    body = {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": "search",
+            "arguments": {"query": query, "max_results": max_results},
+        },
+    }
+    try:
+        resp = requests.post(_ANYSEARCH_ENDPOINT, json=body, headers=headers, timeout=30)
+    except Exception as e:
+        return [{"error": f"AnySearch 请求失败: {e}"}]
+    if resp.status_code != 200:
+        return [{"error": f"AnySearch HTTP {resp.status_code}: {resp.text[:200]}"}]
+    try:
+        data = resp.json()
+    except Exception as e:
+        return [{"error": f"AnySearch 响应非 JSON: {e}"}]
+    if "error" in data:
+        msg = data["error"].get("message") if isinstance(data["error"], dict) else str(data["error"])
+        return [{"error": f"AnySearch 错误: {msg}"}]
+    content = (data.get("result") or {}).get("content") or []
+    if not content:
+        return []
+    md_text = "".join(item.get("text", "") for item in content if item.get("type") == "text")
+    return _parse_anysearch_markdown(md_text)
+
 
 class SearchProvider:
-    """搜索引擎门面，根据 config 自动选择 DDG / Tavily。"""
+    """搜索引擎门面，根据 config 自动选择 DDG / Tavily / AnySearch。"""
 
     def search(self, query: str, max_results: int = 5) -> List[dict]:
         global _tavily_quota_exhausted
         from config.manager import load as _load_cfg
         cfg = _load_cfg()
-        provider = cfg.get("search_provider", "ddg")
+        provider = cfg.get("search_provider", "anysearch")
         if provider == "tavily":
             key = cfg.get("tavily_api_key", "")
             if not key or key.startswith("tvly-xxx"):
@@ -79,6 +155,12 @@ class SearchProvider:
                 return results
             # 配额已耗尽，本次运行直接走 DDG
             return _search_ddg(query, max_results)
+        if provider == "anysearch":
+            key = cfg.get("anysearch_api_key", "") or ""
+            # 模板占位符（含 xxx）视为未配置，走匿名模式
+            if key.startswith("anysearch-xxx") or key.startswith("xxx"):
+                key = ""
+            return _search_anysearch(query, key, max_results)
         return _search_ddg(query, max_results)
 
 
