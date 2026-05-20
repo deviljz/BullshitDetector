@@ -26,11 +26,11 @@ CASES = [
 ]
 
 # 每个 setup = (label, main_model, verify_claim_override)
-# verify_claim_override 非空时：planner 用 main_model，verify 并行用 override（混合 D 模式）
+# verify_claim_override 非空 → planner 用 main_model，verify 并行用 override（混合 D 模式）
 SETUPS = [
     ("preview-only", "gemini-3-flash-preview", ""),
     ("lite-only", "gemini-3.1-flash-lite", ""),
-    ("mixed-D (preview+lite-verify)", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
+    ("mixed-D", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
 ]
 MODELS = [s[0] for s in SETUPS]
 
@@ -125,9 +125,9 @@ def main():
                 else:
                     print(f"  FAIL {res['elapsed']:.1f}s: {res['error'][:200]}")
     finally:
-        # 还原 config
-        set_model(orig_model, "")
-        print(f"\n已还原 model 为: {orig_model}, verify_claim_model=''")
+        # 还原 config 为 mixed-D（用户默认）
+        set_model(orig_model, "gemini-3.1-flash-lite")
+        print(f"\n已还原 model 为: {orig_model}, verify=lite")
 
     # 写报告
     lines = ["# 双模型 replay 对比: gemini-3-flash-preview vs gemini-3.1-flash-lite\n"]
