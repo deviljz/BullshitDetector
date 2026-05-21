@@ -1147,7 +1147,9 @@ class _PlanExecuteMixin:
                     ) else "无法判断"}
             # Guarantee hype_check always has a verdict (re-planner may skip analyze_hype)
             if not hype_check.get("verdict"):
-                hype_check = self._check_hype(_ctx_text, _dbg["stages"])
+                # 兜底 _ctx_text：模型不调任何工具时上方未定义此变量
+                _fallback_ctx = text or " | ".join(r.get("claim", "") for r in all_verify_results)
+                hype_check = self._check_hype(_fallback_ctx, _dbg["stages"])
 
             # phase 2 重核（仅"? 无法核实" claim 触发）
             if any(r.get("fact_layer") == "? 无法核实" for r in all_verify_results):
