@@ -81,7 +81,11 @@ class OpenAICompatibleProvider(_ClassicMixin, _PlanExecuteMixin, BaseLLMProvider
 
         InternalServerError 覆盖所有 5xx（500/502/503/504），Gemini 在高峰期经常返回
         503 UNAVAILABLE "Spikes in demand are usually temporary"，属于典型可重试错误。
+
+        provider quirks 在此统一处理（如 DeepSeek-reasoner 不支持 forced tool_choice）。
         """
+        from ai.providers.quirks import apply_quirks
+        kwargs = apply_quirks(kwargs.get("model", ""), kwargs)
         delay = 10
         for attempt in range(max_retries):
             try:
