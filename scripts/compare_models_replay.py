@@ -25,12 +25,12 @@ CASES = [
     {"id": "baa9c7d8ed6159c4", "label": "text-only 恶之花", "extra": "恶之花是什么梗"},
 ]
 
-# 每个 setup = (label, main_model, verify_claim_override)
+# 每个 setup = (label, active_provider, main_model, verify_claim_override)
 # verify_claim_override 非空 → planner 用 main_model，verify 并行用 override（混合 D 模式）
 SETUPS = [
-    ("preview-only", "gemini-3-flash-preview", ""),
-    ("lite-only", "gemini-3.1-flash-lite", ""),
-    ("mixed-D", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
+    ("preview-only", "openai_compatible", "gemini-3-flash-preview", ""),
+    ("lite-only", "openai_compatible", "gemini-3.1-flash-lite", ""),
+    ("mixed-D", "openai_compatible", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
 ]
 MODELS = [s[0] for s in SETUPS]
 
@@ -48,9 +48,10 @@ def load_case(cid: str):
     return meta, imgs_b64
 
 
-def set_model(model: str, verify_override: str = ""):
+def set_model(active_provider: str, model: str, verify_override: str = ""):
     cfg = json.load(open("config.json", "r", encoding="utf-8"))
-    cfg["providers"]["openai_compatible"]["model"] = model
+    cfg["active_provider"] = active_provider
+    cfg["providers"][active_provider]["model"] = model
     cfg["verify_claim_model"] = verify_override
     with open("config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
@@ -99,18 +100,20 @@ def summarize(res: dict) -> dict:
 
 
 def main():
-    # 备份原 config 的 model
+    # 备份原 config
     orig_cfg = json.load(open("config.json", "r", encoding="utf-8"))
-    orig_model = orig_cfg["providers"]["openai_compatible"]["model"]
-    print(f"原 model: {orig_model}")
-    print(f"\n[1/2] 跑 {len(MODELS)} 模型 × {len(CASES)} case = {len(MODELS)*len(CASES)} 次完整鉴定\n")
+    orig_active = orig_cfg["active_provider"]
+    orig_model = orig_cfg["providers"][orig_active]["model"]
+    orig_verify = orig_cfg.get("verify_claim_model", "")
+    print(f"原配置: active={orig_active} model={orig_model} verify={orig_verify}")
+    print(f"\n[1/2] 跑 {len(MODELS)} setup × {len(CASES)} case = {len(MODELS)*len(CASES)} 次完整鉴定\n")
 
     results = {}
     try:
-        for label, main_model, verify_override in SETUPS:
-            tag = f"{label} (main={main_model}, verify={verify_override or main_model})"
+        for label, active_provider, main_model, verify_override in SETUPS:
+            tag = f"{label} (provider={active_provider}, main={main_model}, verify={verify_override or main_model})"
             print(f"\n========== SETUP: {tag} ==========")
-            set_model(main_model, verify_override)
+            set_model(active_provider, main_model, verify_override)
             model = label  # use label as key
             for case in CASES:
                 key = f"{model}|{case['id']}"
@@ -125,9 +128,9 @@ def main():
                 else:
                     print(f"  FAIL {res['elapsed']:.1f}s: {res['error'][:200]}")
     finally:
-        # 还原 config 为 mixed-D（用户默认）
-        set_model(orig_model, "gemini-3.1-flash-lite")
-        print(f"\n已还原 model 为: {orig_model}, verify=lite")
+        # 还原 config
+        set_model(orig_active, orig_model, orig_verify)
+        print(f"\n已还原: active={orig_active} model={orig_model} verify={orig_verify}")
 
     # 写报告
     lines = ["# 双模型 replay 对比: gemini-3-flash-preview vs gemini-3.1-flash-lite\n"]
