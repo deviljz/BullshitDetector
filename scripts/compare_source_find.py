@@ -41,6 +41,10 @@ def load_imgs(cid: str):
 
 def set_model(model: str):
     cfg = json.load(open("config.json", "r", encoding="utf-8"))
+    if "providers" not in cfg or "openai_compatible" not in cfg["providers"]:
+        raise RuntimeError(
+            f"config.json 结构异常 (keys={list(cfg.keys())[:8]})，set_model 中止"
+        )
     cfg["providers"]["openai_compatible"]["model"] = model
     with open("config.json", "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)

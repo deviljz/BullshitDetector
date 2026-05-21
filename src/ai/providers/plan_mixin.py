@@ -878,10 +878,10 @@ class _PlanExecuteMixin:
             article_snippet = text[:10000]
             if images:
                 user_content = self._image_content(
-                    images, f"请分析以下文章内容（如有图片请一并参考）：\n\n{article_snippet}"
+                    images, f"请分析以下内容内容（如有图片请一并参考）：\n\n{article_snippet}"
                 )
             else:
-                user_content = [{"type": "text", "text": f"请分析以下文章：\n\n{article_snippet}"}]
+                user_content = [{"type": "text", "text": f"请分析以下内容：\n\n{article_snippet}"}]
 
             messages = [
                 {"role": "system", "content": get_planner_prompt(self._tone)},

@@ -28,9 +28,8 @@ CASES = [
 # 每个 setup = (label, active_provider, main_model, verify_claim_override)
 # verify_claim_override 非空 → planner 用 main_model，verify 并行用 override（混合 D 模式）
 SETUPS = [
-    ("preview-only", "openai_compatible", "gemini-3-flash-preview", ""),
-    ("lite-only", "openai_compatible", "gemini-3.1-flash-lite", ""),
     ("mixed-D", "openai_compatible", "gemini-3-flash-preview", "gemini-3.1-flash-lite"),
+    ("dsv4-flash", "opencode_zen", "deepseek-v4-flash", ""),
 ]
 MODELS = [s[0] for s in SETUPS]
 
@@ -50,6 +49,11 @@ def load_case(cid: str):
 
 def set_model(active_provider: str, model: str, verify_override: str = ""):
     cfg = json.load(open("config.json", "r", encoding="utf-8"))
+    # Guard: 若 config.json 已被污染（缺 providers），中止以免进一步破坏
+    if "providers" not in cfg or active_provider not in cfg["providers"]:
+        raise RuntimeError(
+            f"config.json 结构异常 (keys={list(cfg.keys())[:8]})，set_model 中止；请手动恢复 config.json"
+        )
     cfg["active_provider"] = active_provider
     cfg["providers"][active_provider]["model"] = model
     cfg["verify_claim_model"] = verify_override
