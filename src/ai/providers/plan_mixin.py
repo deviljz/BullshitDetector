@@ -172,6 +172,22 @@ class _PlanExecuteMixin:
             pass
         return self._model
 
+    @staticmethod
+    def _tool_calls_of(resp) -> list:
+        """安全提取 tool_calls：choices 为空或 message=None（如安全过滤）时返回 []。
+
+        Gemini 等模型对极端内容触发安全过滤时，OpenAI 兼容端点会返回
+        choices[0].message=None，裸访问 .tool_calls 会抛 AttributeError 崩整条
+        pipeline。所有取 tool_calls 的地方统一从此处取，避免重复防御。
+        """
+        try:
+            msg = resp.choices[0].message
+        except (AttributeError, IndexError, TypeError):
+            return []
+        if msg is None:
+            return []
+        return msg.tool_calls or []
+
     def _verify_claim(self, claim: str | dict, article_text: str, query_cache: dict | None = None,
                       url_snippets: dict | None = None, trace: list | None = None,
                       extra_system_text: str = "",
@@ -235,17 +251,16 @@ class _PlanExecuteMixin:
                 tokens["input_tokens"] += resp.usage.prompt_tokens or 0
                 tokens["output_tokens"] += resp.usage.completion_tokens or 0
 
-            choice = resp.choices[0]
-            messages.append(choice.message)
-
-            if not choice.message.tool_calls:
+            tcs = self._tool_calls_of(resp)
+            if not tcs:
                 break
+            messages.append(resp.choices[0].message)
 
             tool_msgs = []
             search_tcs = []
             fetch_tcs = []
             submit_tc = None
-            for tc in choice.message.tool_calls:
+            for tc in tcs:
                 if tc.function.name == "submit_claim_result":
                     submit_tc = tc
                 elif tc.function.name == "web_search":
@@ -367,7 +382,7 @@ class _PlanExecuteMixin:
                 if resp.usage:
                     tokens["input_tokens"] += resp.usage.prompt_tokens or 0
                     tokens["output_tokens"] += resp.usage.completion_tokens or 0
-                tc = (resp.choices[0].message.tool_calls or [None])[0]
+                tc = (self._tool_calls_of(resp) or [None])[0]
                 if tc and tc.function.name == "submit_claim_result":
                     result = json.loads(tc.function.arguments)
                     result["sources"] = list(dict.fromkeys(captured_urls))
@@ -608,7 +623,7 @@ class _PlanExecuteMixin:
                 tools=[SUBMIT_TITLE_LOGIC_TOOL],
                 tool_choice={"type": "function", "function": {"name": "submit_title_logic"}},
             )
-            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            tc = (self._tool_calls_of(resp) or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
         except Exception as e:
             import logging
@@ -649,7 +664,7 @@ class _PlanExecuteMixin:
                 tools=[SUBMIT_HYPE_TOOL],
                 tool_choice={"type": "function", "function": {"name": "submit_hype_check"}},
             )
-            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            tc = (self._tool_calls_of(resp) or [None])[0]
             result = json.loads(tc.function.arguments) if tc else None
         except Exception as e:
             _err = repr(e)
@@ -784,7 +799,7 @@ class _PlanExecuteMixin:
                 temperature=0,
                 reasoning_effort="low",
             )
-            tc = (resp.choices[0].message.tool_calls or [None])[0]
+            tc = (self._tool_calls_of(resp) or [None])[0]
             if tc and tc.function.name == "submit_inconsistencies":
                 args = json.loads(tc.function.arguments)
                 indices = args.get("reverify", [])
@@ -911,17 +926,16 @@ class _PlanExecuteMixin:
                     total["input_tokens"] += resp.usage.prompt_tokens or 0
                     total["output_tokens"] += resp.usage.completion_tokens or 0
 
-                choice = resp.choices[0]
-                messages.append(choice.message)
-
-                if not choice.message.tool_calls:
-                    # Re-planner gave up without submit_verdict — break and use fallback
+                tcs = self._tool_calls_of(resp)
+                if not tcs:
+                    # Re-planner gave up / 安全过滤返回空 message — break and use fallback
                     break
+                messages.append(resp.choices[0].message)
 
                 # Separate tool calls by type
                 verify_tcs, other_tcs, submit_tc = [], [], None
                 _narrative_tc = None
-                for tc in choice.message.tool_calls:
+                for tc in tcs:
                     name = tc.function.name
                     if name == "submit_verdict":
                         submit_tc = tc
@@ -1106,7 +1120,7 @@ class _PlanExecuteMixin:
                     if resp.usage:
                         total["input_tokens"] += resp.usage.prompt_tokens or 0
                         total["output_tokens"] += resp.usage.completion_tokens or 0
-                    _tc = (resp.choices[0].message.tool_calls or [None])[0]
+                    _tc = (self._tool_calls_of(resp) or [None])[0]
                     if _tc and _tc.function.name == "submit_verdict":
                         submit_args = json.loads(_tc.function.arguments)
                 except Exception:
