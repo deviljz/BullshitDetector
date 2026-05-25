@@ -81,8 +81,8 @@ class BullshitDetectorApp:
         # 搜索引擎子菜单
         search_menu = QMenu("搜索引擎", menu)
         self._search_actions: dict[str, QAction] = {}
-        current_search = load_config().get("search_provider", "ddg")
-        for key, label in (("ddg", "DuckDuckGo（需代理）"), ("tavily", "Tavily（国内可用）")):
+        current_search = load_config().get("search_provider", "anysearch")
+        for key, label in (("anysearch", "AnySearch（AI 搜索，免配置）"), ("tavily", "Tavily（国内可用）"), ("ddg", "DuckDuckGo（需代理）")):
             action = QAction(label, search_menu)
             action.setCheckable(True)
             action.setChecked(key == current_search)
